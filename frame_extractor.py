@@ -8,6 +8,7 @@ import cv2
 import os
 import json
 from pathlib import Path
+import time
 
 def extract_frames(video_path, output_root="frames", every_nth=1, resize=None, lossless=False):
     """
@@ -75,6 +76,7 @@ def extract_frames(video_path, output_root="frames", every_nth=1, resize=None, l
 
 
 if __name__ == "__main__":
+    start_time = time.time()
     import argparse
     parser = argparse.ArgumentParser(description="Extract frames from a video file.")
     parser.add_argument("video_path", type=str, help="Path to the input video file")
@@ -93,3 +95,5 @@ if __name__ == "__main__":
     )
 
     print(f"✅ Extracted {total} frames to {Path(args.output_root) / Path(args.video_path).stem}/")
+    end_time = time.time()
+    print(f"Script ran for {end_time - start_time:.2f} seconds.")
