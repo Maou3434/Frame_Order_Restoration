@@ -20,7 +20,7 @@ def save_frame(frame_idx, frame, output_dir, resize, ext):
     cv2.imwrite(str(output_dir / frame_name), frame)
     return frame_idx
 
-def extract_frames(video_path, output_root="frames", every_nth=1, resize=None, lossless=False, num_workers=None):
+def extract_frames(video_path, output_root="frames", every_nth=1, resize=None, lossless=True, num_workers=None):
     """
     Extract frames from a video using multithreading.
 
@@ -101,7 +101,6 @@ if __name__ == "__main__":
     parser.add_argument("--output_root", type=str, default="frames", help="Root output directory")
     parser.add_argument("--every_nth", type=int, default=1, help="Save every nth frame")
     parser.add_argument("--resize", type=int, nargs=2, help="Resize width height (optional)")
-    parser.add_argument("--lossless", action="store_true", help="Save frames as PNG instead of JPEG")
     parser.add_argument("--num_workers", type=int, help="Number of threads (optional)")
     args = parser.parse_args()
 
@@ -110,7 +109,6 @@ if __name__ == "__main__":
         output_root=args.output_root,
         every_nth=args.every_nth,
         resize=tuple(args.resize) if args.resize else None,
-        lossless=args.lossless,
         num_workers=args.num_workers
     )
 
