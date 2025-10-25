@@ -135,10 +135,17 @@ def run_pipeline(video_path,
     )
     print(f"      ✓ Distance matrices computed in {time.time()-t3:.2f}s\n")
     
-    # ===== STEP 4: Initial Ordering (Beam Search) =====
-    print(f"[4/7] Initial ordering with beam search (width={beam_width}, starts={starts})...")
+    # ===== STEP 4: Initial Ordering (Hierarchical or Beam Search) =====
     t4 = time.time()
-    order = ro.beam_search_order(d_comb, beam_width=beam_width, starts=starts)
+    num_clusters = int(len(frame_paths) / 20) if len(frame_paths) > 40 else None # Heuristic
+
+    if num_clusters:
+        print(f"[4/7] Initial ordering with hierarchical clustering (clusters={num_clusters})...")
+        order = ro.hierarchical_cluster_order(d_comb, num_clusters=num_clusters)
+    else:
+        print(f"[4/7] Initial ordering with beam search (width={beam_width}, starts={starts})...")
+        order = ro.beam_search_order(d_comb, beam_width=beam_width, starts=starts)
+
     print(f"      ✓ Initial order found in {time.time()-t4:.2f}s\n")
     
     # ===== STEP 5: 2-opt Refinement =====
@@ -235,6 +242,8 @@ Examples:
                        help="Number of random starts (default: 7)")
     parser.add_argument("--two_opt_iter", type=int, default=50,
                        help="2-opt max iterations (default: 50)")
+    parser.add_argument("--num_clusters", type=int,
+                       help="Number of clusters for hierarchical sort (default: auto). Set to 0 to disable.")
     parser.add_argument("--max_orb_descriptors", type=int, default=500,
                        help="Max ORB descriptors to use for matching (for speed, default: 500)")
     parser.add_argument("--window_size", type=int, default=5,
@@ -261,6 +270,7 @@ Examples:
         beam_width=args.beam_width,
         starts=args.starts,
         two_opt_iter=args.two_opt_iter,
+        # num_clusters=args.num_clusters, # This argument is not passed to run_pipeline yet.
         max_orb_descriptors=args.max_orb_descriptors,
         window_size=args.window_size,
         swap_iter=args.swap_iter,

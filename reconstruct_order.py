@@ -1,6 +1,7 @@
 import os
 import json
 import cv2
+from sklearn.cluster import AgglomerativeClustering
 import numpy as np
 from pathlib import Path
 from tqdm import tqdm
@@ -224,6 +225,88 @@ def beam_search_order(dist_matrix, beam_width=3, starts=5):
                 best_order, best_cost = order, cost
     
     return best_order
+
+def _solve_cluster_tsp(cluster_dist_matrix):
+    """
+    Solves the TSP problem for ordering clusters using the assignment problem solver.
+    This finds the cheapest chain of connections between cluster endpoints.
+    """
+    row_ind, col_ind = linear_sum_assignment(cluster_dist_matrix)
+    
+    # Create a successor map from the assignment solution
+    successors = {r: c for r, c in zip(row_ind, col_ind)}
+    
+    # Find the start of the path (an endpoint that is not a successor to any other)
+    start_node = list(set(successors.keys()) - set(successors.values()))[0]
+    
+    # Reconstruct the path
+    path = [start_node]
+    current = start_node
+    while current in successors and len(path) < len(successors):
+        current = successors[current]
+        path.append(current)
+        
+    return path
+
+def hierarchical_cluster_order(dist_matrix, num_clusters):
+    """
+    Hierarchical ordering:
+    1. Cluster frames.
+    2. Sort frames within each cluster.
+    3. Sort the clusters themselves.
+    4. Chain the results.
+    """
+    N = dist_matrix.shape[0]
+
+    # 1. Cluster frames using the distance matrix
+    print("      - Clustering frames...")
+    clustering = AgglomerativeClustering(
+        n_clusters=num_clusters, affinity='precomputed', linkage='average'
+    ).fit(dist_matrix)
+    
+    clusters = {i: [] for i in range(num_clusters)}
+    for frame_idx, cluster_id in enumerate(clustering.labels_):
+        clusters[cluster_id].append(frame_idx)
+
+    # 2. Sort frames within each cluster
+    print("      - Sorting within clusters...")
+    sorted_clusters = {}
+    for cid, members in clusters.items():
+        if not members: continue
+        
+        # Create a sub-matrix for the current cluster
+        sub_matrix = dist_matrix[np.ix_(members, members)]
+        
+        # Sort using a simple greedy approach (fast for small clusters)
+        start_node = np.argmin(sub_matrix.sum(axis=1)) # Start with the most 'central' frame
+        local_order_indices = greedy_nearest_neighbor(sub_matrix, start_idx=start_node)
+        
+        # Map local indices back to global frame indices
+        global_order = [members[i] for i in local_order_indices]
+        sorted_clusters[cid] = global_order
+
+    # 3. Sort the clusters
+    print("      - Sorting clusters...")
+    cluster_endpoints = {cid: (order[0], order[-1]) for cid, order in sorted_clusters.items()}
+    cids = list(cluster_endpoints.keys())
+    num_c = len(cids)
+    
+    # Create a distance matrix between cluster endpoints
+    # Cost from cluster i to cluster j is the distance between end(i) and start(j)
+    cluster_dist = np.full((num_c, num_c), np.inf)
+    for i in range(num_c):
+        for j in range(num_c):
+            if i == j: continue
+            end_i = cluster_endpoints[cids[i]][1]
+            start_j = cluster_endpoints[cids[j]][0]
+            cluster_dist[i, j] = dist_matrix[end_i, start_j]
+
+    cluster_path = _solve_cluster_tsp(cluster_dist)
+    ordered_cids = [cids[i] for i in cluster_path]
+
+    # 4. Chain the results to get the final order
+    final_order = [frame for cid in ordered_cids for frame in sorted_clusters[cid]]
+    return final_order
 
 def two_opt_refinement(order, dist_matrix, max_iter=100):
     """
