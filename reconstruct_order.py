@@ -4,6 +4,7 @@ import cv2
 from sklearn.cluster import AgglomerativeClustering
 import numpy as np
 from pathlib import Path
+from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
 from scipy.optimize import linear_sum_assignment
 
@@ -147,18 +148,36 @@ def combine_distances(d_orb, d_hist, d_phash, d_dhash, d_edge, d_moment,
                      dhash_w=0.15, edge_w=0.1, moment_w=0.1):
     """
     Weighted combination with normalization
+    Uses StandardScaler for more robust normalization than simple min-max scaling.
     """
-    def normalize(d):
-        d_max = d.max()
-        return d / d_max if d_max > 0 else d
-    
+    def normalize_matrix(d):
+        """Scales a distance matrix using StandardScaler."""
+        N = d.shape[0]
+        # The diagonal is always 0, so we only scale the off-diagonal elements
+        # to get a meaningful distribution of actual distances.
+        off_diagonal_indices = ~np.eye(N, dtype=bool)
+        distances = d[off_diagonal_indices].reshape(-1, 1)
+
+        if distances.size == 0:
+            return d # Nothing to scale
+
+        # Scale to mean=0, std=1, then shift to be non-negative (min=0)
+        scaler = StandardScaler()
+        scaled_distances = scaler.fit_transform(distances)
+        scaled_distances -= scaled_distances.min() # Ensure minimum is 0
+
+        # Put the scaled values back into a new matrix
+        norm_d = np.zeros_like(d, dtype=np.float32)
+        norm_d[off_diagonal_indices] = scaled_distances.flatten()
+        return norm_d
+
     d_combined = (
-        orb_w * normalize(d_orb) +
-        hist_w * normalize(d_hist) +
-        phash_w * normalize(d_phash) +
-        dhash_w * normalize(d_dhash) +
-        edge_w * normalize(d_edge) +
-        moment_w * normalize(d_moment)
+        orb_w * normalize_matrix(d_orb) +
+        hist_w * normalize_matrix(d_hist) +
+        phash_w * normalize_matrix(d_phash) +
+        dhash_w * normalize_matrix(d_dhash) +
+        edge_w * normalize_matrix(d_edge) +
+        moment_w * normalize_matrix(d_moment)
     )
     
     return d_combined
