@@ -319,40 +319,41 @@ def adjacent_swap_refinement(order, frame_paths, max_iter=5):
     
     for iteration in range(max_iter):
         improved = False
+        # Pre-calculate all adjacent similarity scores for the current order
+        ordered_paths = [frame_paths[i] for i in order]
+        all_frames = read_gray_cached(ordered_paths, cache)
+        scores = compute_similarity_batch(all_frames[:-1], all_frames[1:])
         
         for i in range(N - 1):
-            # Load 3 consecutive frames
-            if i == 0:
-                paths = [frame_paths[order[i]], frame_paths[order[i+1]]]
-                frames = read_gray_cached(paths, cache)
-                score_before = compute_similarity_batch([frames[0]], [frames[1]])[0]
-            else:
-                paths = [frame_paths[order[i-1]], frame_paths[order[i]], 
-                        frame_paths[order[i+1]]]
-                frames = read_gray_cached(paths, cache)
-                score_before = (
-                    compute_similarity_batch([frames[0]], [frames[1]])[0] +
-                    compute_similarity_batch([frames[1]], [frames[2]])[0]
-                )
+            # Consider swapping elements at i and i+1
+            # Original sequence segment: ... A, B, C, D ...
+            # where A=order[i-1], B=order[i], C=order[i+1], D=order[i+2]
+            # Swapped sequence segment:  ... A, C, B, D ...
             
-            # Try swap
-            if i + 2 < N:
-                paths_after = [frame_paths[order[i-1]] if i > 0 else None,
-                              frame_paths[order[i+1]], 
-                              frame_paths[order[i]],
-                              frame_paths[order[i+2]]]
-                frames_after = [cache.get(p) if p else None for p in paths_after 
-                               if p is not None]
-                
-                if len(frames_after) >= 3:
-                    score_after = (
-                        compute_similarity_batch([frames_after[0]], [frames_after[1]])[0] +
-                        compute_similarity_batch([frames_after[1]], [frames_after[2]])[0]
-                    )
-                    
-                    if score_after > score_before:
-                        order[i], order[i+1] = order[i+1], order[i]
-                        improved = True
+            # Score of original links: (A,B) + (B,C) + (C,D)
+            score_before = 0
+            if i > 0: score_before += scores[i-1]  # Link (A,B)
+            score_before += scores[i]              # Link (B,C)
+            if i < N - 2: score_before += scores[i+1] # Link (C,D)
+
+            # Score of new links after swap: (A,C) + (C,B) + (B,D)
+            # We only need to compute the new links
+            frame_A = all_frames[i-1] if i > 0 else None
+            frame_B = all_frames[i]
+            frame_C = all_frames[i+1]
+            frame_D = all_frames[i+2] if i < N - 2 else None
+
+            score_after = 0
+            # New link (C,B) is the same as (B,C) but we re-calculate for clarity
+            score_after += compute_similarity_batch([frame_C], [frame_B])[0]
+            if frame_A is not None: score_after += compute_similarity_batch([frame_A], [frame_C])[0]
+            if frame_D is not None: score_after += compute_similarity_batch([frame_B], [frame_D])[0]
+
+            if score_after > score_before:
+                order[i], order[i+1] = order[i+1], order[i]
+                improved = True
+                # Since the order changed, we must restart the loop in the next iteration
+                break 
         
         if not improved:
             break
@@ -367,7 +368,8 @@ def save_order_json(order, frames, video_name, reverse=False):
     if reverse:
         order = order[::-1]
     data = {
-        "order_idx": order,
+        # Convert numpy integers to standard python integers for JSON serialization
+        "order_idx": [int(i) for i in order],
         "order_frames": [frames[i] for i in order]
     }
     out_path = os.path.join("output", f"{video_name}_order.json")
@@ -417,7 +419,7 @@ def evaluate_similarity(order, frame_paths):
     frames = read_gray_cached([frame_paths[i] for i in order], cache)
     
     scores = compute_similarity_batch(frames[:-1], frames[1:])
-    avg_score = 100 * np.mean(scores)
+    avg_score = 100 * float(np.mean(scores))
     
     print(f"[i] Average frame-wise similarity: {avg_score:.2f}%")
     return avg_score

@@ -267,9 +267,14 @@ Examples:
     
     # Save summary
     summary_path = "output/pipeline_summary.json"
+    # Convert numpy types to native python types for JSON serialization
+    serializable_result = {}
+    for k, v in result.items():
+        if isinstance(v, (np.floating, np.integer)):
+            serializable_result[k] = v.item()
+        else:
+            serializable_result[k] = v
+
     with open(summary_path, "w") as f:
-        json.dump({
-            k: v for k, v in result.items() 
-            if k != "misplacements_sample"
-        }, f, indent=2)
+        json.dump({k: v for k, v in serializable_result.items() if k != "misplacements_sample"}, f, indent=2)
     print(f"Summary saved to: {summary_path}")
