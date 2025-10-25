@@ -67,6 +67,7 @@ def run_pipeline(video_path,
                  window_size=5,
                  swap_iter=3,
                  reverse=False,
+                 num_clusters=None,
                  fps=30,
                  ground_truth_frames=None):
     """
@@ -137,9 +138,10 @@ def run_pipeline(video_path,
     
     # ===== STEP 4: Initial Ordering (Hierarchical or Beam Search) =====
     t4 = time.time()
-    num_clusters = int(len(frame_paths) / 20) if len(frame_paths) > 40 else None # Heuristic
-
-    if num_clusters:
+    # Use hierarchical clustering if specified, or as a heuristic for very long videos
+    use_hierarchical = (num_clusters is not None and num_clusters > 0) or (num_clusters is None and len(frame_paths) > 500)
+    if use_hierarchical:
+        num_clusters = num_clusters or int(len(frame_paths) / 20) # Apply heuristic if not specified
         print(f"[4/7] Initial ordering with hierarchical clustering (clusters={num_clusters})...")
         order = ro.hierarchical_cluster_order(d_comb, num_clusters=num_clusters)
     else:
@@ -166,7 +168,7 @@ def run_pipeline(video_path,
     order = ro.adjacent_swap_refinement(order, frame_paths, max_iter=swap_iter, frame_cache=frame_cache, sim_cache=similarity_cache)
     
     print(f"      - Sliding window optimization (window={window_size})...")
-    order = ro.sliding_window_refinement(order, frame_paths, window=window_size)
+    order = ro.sliding_window_refinement(order, frame_paths, window=window_size, frame_cache=frame_cache, sim_cache=similarity_cache)
     
     print(f"      - Final swap pass...")
     order = ro.adjacent_swap_refinement(order, frame_paths, max_iter=1, frame_cache=frame_cache, sim_cache=similarity_cache)
@@ -272,9 +274,9 @@ Examples:
         resize=tuple(args.resize) if args.resize else None,
         num_workers=args.num_workers,
         beam_width=args.beam_width,
-        starts=args.starts,
+        starts=args.starts, # This argument is not passed to run_pipeline yet.
         two_opt_iter=args.two_opt_iter,
-        # num_clusters=args.num_clusters, # This argument is not passed to run_pipeline yet.
+        num_clusters=args.num_clusters,
         max_orb_descriptors=args.max_orb_descriptors,
         window_size=args.window_size,
         swap_iter=args.swap_iter,

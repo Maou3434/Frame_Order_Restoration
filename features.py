@@ -17,9 +17,6 @@ def compute_features(frame, downsample_factor=1.0):
         # Use INTER_AREA for quality downsampling
         frame = cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_AREA)
 
-    # 1. ORB descriptors (increased features for better matching)
-    orb = cv2.ORB_create(nfeatures=1000, scaleFactor=1.2, nlevels=8)
-    
     # Feature sampling: dynamic ORB feature count based on texture variance
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
@@ -33,6 +30,7 @@ def compute_features(frame, downsample_factor=1.0):
     else: # High texture (e.g., detailed foliage, complex patterns)
         nfeatures_orb = 1000
     
+    # 1. ORB descriptors (dynamically sized for better matching)
     orb_dynamic = cv2.ORB_create(nfeatures=nfeatures_orb, scaleFactor=1.2, nlevels=8)
     kp, des = orb_dynamic.detectAndCompute(gray, None) # Use gray for ORB detection
     if des is None:
@@ -110,39 +108,37 @@ def extract_features(frames_folder, video_name, max_workers=None):
     
     # Process frames in parallel
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        futures = {}
         downsample_factor = 1.0  # Start with no downsampling
         
         # --- Dynamic Resolution Logic ---
-        # 1. Process an initial batch to gauge performance
-        initial_batch_size = min(20, total)
-        print(f"[i] Processing initial batch of {initial_batch_size} frames to determine optimal resolution...")
-        start_batch_time = time.time()
-        
-        initial_args = [(idx, frame_paths[idx], 1.0) for idx in range(initial_batch_size)]
-        initial_futures = {executor.submit(process_frame, args): args[0] for args in initial_args}
-        
-        for future in as_completed(initial_futures):
-            idx, feat = future.result()
-            features[idx] = feat
-        
-        elapsed_batch = time.time() - start_batch_time
-        throughput = initial_batch_size / elapsed_batch if elapsed_batch > 0 else float('inf')
-        print(f"[i] Initial throughput: {throughput:.2f} frames/sec.")
+        # 1. Decide on downsampling factor based on a small sample's performance
+        if total > 20: # Only run this logic for larger videos
+            initial_batch_size = min(20, total)
+            print(f"[i] Processing initial batch of {initial_batch_size} frames to determine optimal resolution...")
+            start_batch_time = time.time()
+            
+            initial_args = [(idx, frame_paths[idx], 1.0) for idx in range(initial_batch_size)]
+            initial_futures = [executor.submit(process_frame, args) for args in initial_args]
+            for future in as_completed(initial_futures):
+                future.result() # We only care about the time it took
+            
+            elapsed_batch = time.time() - start_batch_time
+            throughput = initial_batch_size / elapsed_batch if elapsed_batch > 0 else float('inf')
+            print(f"[i] Initial throughput: {throughput:.2f} frames/sec.")
 
-        # 2. Decide whether to downsample based on a throughput threshold
-        if throughput < 5.0 and total > initial_batch_size: # Threshold of 5 FPS
-            downsample_factor = 2.0
-            print(f"[!] Throughput is low. Downsampling remaining frames by a factor of {downsample_factor} for speed.")
+            # 2. Decide whether to downsample based on a throughput threshold
+            if throughput < 5.0: # Threshold of 5 FPS
+                downsample_factor = 2.0
+                print(f"[!] Throughput is low. Downsampling ALL frames by a factor of {downsample_factor} for speed.")
+            else:
+                print("[i] Throughput is good. Processing all frames at original resolution.")
         
-        # 3. Submit remaining tasks with the chosen downsample factor
-        if total > initial_batch_size:
-            remaining_args = [(idx, frame_paths[idx], downsample_factor) for idx in range(initial_batch_size, total)]
-            remaining_futures = {executor.submit(process_frame, args): args[0] for args in remaining_args}
-            futures.update(remaining_futures)
+        # 3. Submit all tasks with the chosen downsample factor
+        all_args = [(idx, frame_paths[idx], downsample_factor) for idx in range(total)]
+        futures = {executor.submit(process_frame, args): args[0] for args in all_args}
         
         # Collect results with progress
-        completed = initial_batch_size
+        completed = 0
         for future in as_completed(futures):
             idx, feat = future.result()
             features[idx] = feat

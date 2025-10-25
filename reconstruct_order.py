@@ -82,9 +82,11 @@ def orb_distance_matrix_optimized(orb_features, ratio_thresh=0.75, max_descripto
             try:
                 if des1.shape[0] == 0 or des2.shape[0] == 0: # Ensure descriptors are not empty after slicing
                     continue
+                # k=2 for ratio test. Guard against cases with < 2 matches.
                 matches = bf.knnMatch(des1, des2, k=2)
-                good = [m for m, n in matches if len(matches[0]) > 1 and 
-                       m.distance < ratio_thresh * n.distance]
+                # Ensure each match has two neighbors to compare against
+                good = [m for m, n in matches if len(matches) > 0 and len(m) == 2 and
+                       m[0].distance < ratio_thresh * m[1].distance]
                 
                 # Normalized match score
                 match_score = len(good) / min(len(des1), len(des2))
@@ -427,26 +429,26 @@ def get_similarity(idx1, idx2, frame_paths, frame_cache, sim_cache):
     sim_cache[key] = score
     return score
 
-def sliding_window_refinement(order, frame_paths, window=5, stride=2):
+def sliding_window_refinement(order, frame_paths, window=5, stride=2, frame_cache=None, sim_cache=None):
     """
-    Refine using sliding window optimization
+    Refine using sliding window optimization with shared caches.
     """
-    cache = {}
+    if frame_cache is None: frame_cache = {}
+    if sim_cache is None: sim_cache = {}
     N = len(order)
     
-    # This function can be further optimized to share caches with adjacent_swap
     for start in range(0, N - window, stride):
         end = min(start + window, N)
         segment = order[start:end]
-        segment_paths = [frame_paths[i] for i in segment]
         
         # Try all permutations of small segments (only for very small windows)
         if len(segment) <= 4:
             from itertools import permutations
-            best_perm = segment
+            best_perm = list(segment)
             best_score = -np.inf
-            
-            segment_frames = read_gray_cached(segment_paths, cache)
+
+            segment_paths = [frame_paths[i] for i in segment]
+            segment_frames = read_gray_cached(segment_paths, frame_cache)
             
             for perm in permutations(range(len(segment))):
                 perm_frames = [segment_frames[i] for i in perm]
