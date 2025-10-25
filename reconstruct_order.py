@@ -29,25 +29,38 @@ def load_features(features_file):
 # ---------------------------
 def phash_hamming_matrix(phashes):
     N = len(phashes)
-    phash_uint64 = np.packbits(phashes, axis=1)  # pack bits for faster XOR
-    mat = np.zeros((N, N), dtype=np.int32)
-    for i in range(N):
-        xor_vals = np.bitwise_xor(phash_uint64[i], phash_uint64)
-        mat[i] = np.sum(np.unpackbits(xor_vals, axis=1), axis=1)
+    # phashes is (N, 64) boolean-like (uint8 0/1) array.
+    # Pack bits for faster XOR operations.
+    # phash_uint8 will be (N, 8) where each row is 8 bytes representing 64 bits.
+    phash_uint8 = np.packbits(phashes, axis=1)
+
+    # Reshape for broadcasting:
+    # phash_uint8_i (N, 1, 8)
+    # phash_uint8_j (1, N, 8)
+    phash_uint8_i = phash_uint8[:, np.newaxis, :]
+    phash_uint8_j = phash_uint8[np.newaxis, :, :]
+
+    # Compute XOR for all pairs: (N, N, 8)
+    xor_vals_all_pairs = np.bitwise_xor(phash_uint8_i, phash_uint8_j)
+
+    # Unpack bits for all XOR results: (N, N, 64)
+    # Then sum along the bit dimension (axis=2) to get Hamming distance.
+    mat = np.sum(np.unpackbits(xor_vals_all_pairs, axis=2), axis=2)
     return mat
 
 def histogram_distance_matrix(hists):
-    # Chi-square distance
-    h = hists
-    N = h.shape[0]
-    mat = np.zeros((N, N), dtype=np.float32)
-    for i in range(N):
-        a = h[i:i+1]
-        diff = (a - h) ** 2
-        denom = a + h + 1e-10
-        mat[i] = 0.5 * np.sum(diff / denom, axis=1)
+    """
+    Computes the Chi-square distance matrix for a set of histograms.
+    Fully vectorized for efficiency using NumPy broadcasting.
+    """
+    N = hists.shape[0]
+    # Reshape hists for broadcasting: hists_i (N, 1, B), hists_j (1, N, B)
+    hists_i = hists[:, np.newaxis, :]
+    hists_j = hists[np.newaxis, :, :]
+    diff = (hists_i - hists_j) ** 2
+    denom = hists_i + hists_j + 1e-10
+    mat = 0.5 * np.sum(diff / denom, axis=2)
     return mat
-
 def combine_distances(d_phash, d_hist, hist_weight=0.3):
     d = d_phash.astype(np.float32)
     d /= (d.max() + 1e-8)
