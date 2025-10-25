@@ -63,6 +63,7 @@ def run_pipeline(video_path,
                  beam_width=5,
                  starts=7,
                  two_opt_iter=50,
+                 max_orb_descriptors=500,
                  window_size=5,
                  swap_iter=3,
                  reverse=False,
@@ -109,7 +110,7 @@ def run_pipeline(video_path,
     )
     
     print("      - ORB distances...")
-    d_orb = ro.orb_distance_matrix_optimized(orb)
+    d_orb = ro.orb_distance_matrix_optimized(orb, max_descriptors_to_match=max_orb_descriptors)
     
     print("      - Histogram distances...")
     d_hist = ro.histogram_distance_matrix(hist)
@@ -234,6 +235,8 @@ Examples:
                        help="Number of random starts (default: 7)")
     parser.add_argument("--two_opt_iter", type=int, default=50,
                        help="2-opt max iterations (default: 50)")
+    parser.add_argument("--max_orb_descriptors", type=int, default=500,
+                       help="Max ORB descriptors to use for matching (for speed, default: 500)")
     parser.add_argument("--window_size", type=int, default=5,
                        help="Sliding window size (default: 5, 3-7 recommended)")
     parser.add_argument("--swap_iter", type=int, default=3,
@@ -258,6 +261,7 @@ Examples:
         beam_width=args.beam_width,
         starts=args.starts,
         two_opt_iter=args.two_opt_iter,
+        max_orb_descriptors=args.max_orb_descriptors,
         window_size=args.window_size,
         swap_iter=args.swap_iter,
         reverse=args.reverse,

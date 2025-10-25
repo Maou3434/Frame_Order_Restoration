@@ -13,8 +13,24 @@ def compute_features(frame):
     """
     # 1. ORB descriptors (increased features for better matching)
     orb = cv2.ORB_create(nfeatures=1000, scaleFactor=1.2, nlevels=8)
-    kp, des = orb.detectAndCompute(frame, None)
+    
+    # Feature sampling: dynamic ORB feature count based on texture variance
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
+    
+    # Heuristic mapping of texture variance to ORB feature count.
+    # These thresholds and counts are tunable for speed vs. accuracy.
+    if laplacian_var < 50: # Very low texture (e.g., plain sky, smooth wall)
+        nfeatures_orb = 200
+    elif laplacian_var < 500: # Medium texture
+        nfeatures_orb = 600
+    else: # High texture (e.g., detailed foliage, complex patterns)
+        nfeatures_orb = 1000
+    
+    orb_dynamic = cv2.ORB_create(nfeatures=nfeatures_orb, scaleFactor=1.2, nlevels=8)
+    kp, des = orb_dynamic.detectAndCompute(gray, None) # Use gray for ORB detection
     if des is None:
+        # Ensure descriptor array is not empty, even if no features are found
         des = np.zeros((1, 32), dtype=np.uint8)
     
     # 2. Enhanced HSV histogram with finer bins
@@ -31,7 +47,6 @@ def compute_features(frame):
     dhash = np.array(imagehash.dhash(pil_img, hash_size=8).hash).astype(np.uint8).flatten()
     
     # 4. Edge density histogram (motion/structure indicator)
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     edges = cv2.Canny(gray, 50, 150)
     edge_hist = cv2.calcHist([edges], [0], None, [16], [0, 256]).flatten()
     edge_hist = edge_hist / (edge_hist.sum() + 1e-8)
