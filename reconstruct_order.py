@@ -391,6 +391,23 @@ def compute_similarity_batch(frames_a, frames_b):
     
     return np.array(scores)
 
+def get_similarity(idx1, idx2, frame_paths, frame_cache, sim_cache):
+    """
+    Computes or retrieves from cache the similarity between two frames.
+    The key for the similarity cache is a sorted tuple of indices to ensure
+    sim(i, j) == sim(j, i).
+    """
+    key = tuple(sorted((idx1, idx2)))
+    if key in sim_cache:
+        return sim_cache[key]
+
+    path1, path2 = frame_paths[idx1], frame_paths[idx2]
+    frame1, frame2 = read_gray_cached([path1], frame_cache)[0], read_gray_cached([path2], frame_cache)[0]
+    
+    score = compute_similarity_batch([frame1], [frame2])[0]
+    sim_cache[key] = score
+    return score
+
 def sliding_window_refinement(order, frame_paths, window=5, stride=2):
     """
     Refine using sliding window optimization
@@ -398,6 +415,7 @@ def sliding_window_refinement(order, frame_paths, window=5, stride=2):
     cache = {}
     N = len(order)
     
+    # This function can be further optimized to share caches with adjacent_swap
     for start in range(0, N - window, stride):
         end = min(start + window, N)
         segment = order[start:end]
@@ -427,52 +445,53 @@ def sliding_window_refinement(order, frame_paths, window=5, stride=2):
     
     return order
 
-def adjacent_swap_refinement(order, frame_paths, max_iter=5):
+def adjacent_swap_refinement(order, frame_paths, max_iter=5, frame_cache=None, sim_cache=None):
     """
-    Fast adjacent swap refinement
+    Fast adjacent swap refinement with incremental updates and caching.
     """
-    cache = {}
+    if frame_cache is None: frame_cache = {}
+    if sim_cache is None: sim_cache = {}
     N = len(order)
     
     for iteration in range(max_iter):
         improved = False
-        # Pre-calculate all adjacent similarity scores for the current order
-        ordered_paths = [frame_paths[i] for i in order]
-        all_frames = read_gray_cached(ordered_paths, cache)
-        scores = compute_similarity_batch(all_frames[:-1], all_frames[1:])
-        
         for i in range(N - 1):
             # Consider swapping elements at i and i+1
-            # Original sequence segment: ... A, B, C, D ...
-            # where A=order[i-1], B=order[i], C=order[i+1], D=order[i+2]
-            # Swapped sequence segment:  ... A, C, B, D ...
-            
-            # Score of original links: (A,B) + (B,C) + (C,D)
+            # Original segment: ... A-B-C-D ...
+            # Swapped segment:  ... A-C-B-D ...
+            # Indices: A=i-1, B=i, C=i+1, D=i+2
+            idx_B, idx_C = order[i], order[i+1]
+
+            # --- Calculate score before swap ---
+            # We only need to evaluate the links that change: (A,B), (B,C), (C,D)
             score_before = 0
-            if i > 0: score_before += scores[i-1]  # Link (A,B)
-            score_before += scores[i]              # Link (B,C)
-            if i < N - 2: score_before += scores[i+1] # Link (C,D)
+            if i > 0: # Link A-B
+                score_before += get_similarity(order[i-1], idx_B, frame_paths, frame_cache, sim_cache)
+            
+            score_before += get_similarity(idx_B, idx_C, frame_paths, frame_cache, sim_cache) # Link B-C
+            
+            if i < N - 2: # Link C-D
+                score_before += get_similarity(idx_C, order[i+2], frame_paths, frame_cache, sim_cache)
 
-            # Score of new links after swap: (A,C) + (C,B) + (B,D)
-            # We only need to compute the new links
-            frame_A = all_frames[i-1] if i > 0 else None
-            frame_B = all_frames[i]
-            frame_C = all_frames[i+1]
-            frame_D = all_frames[i+2] if i < N - 2 else None
-
+            # --- Calculate score after swap ---
+            # New links to evaluate: (A,C), (C,B), (B,D)
             score_after = 0
-            # New link (C,B) is the same as (B,C) but we re-calculate for clarity
-            score_after += compute_similarity_batch([frame_C], [frame_B])[0]
-            if frame_A is not None: score_after += compute_similarity_batch([frame_A], [frame_C])[0]
-            if frame_D is not None: score_after += compute_similarity_batch([frame_B], [frame_D])[0]
+            if i > 0: # Link A-C
+                score_after += get_similarity(order[i-1], idx_C, frame_paths, frame_cache, sim_cache)
+            
+            score_after += get_similarity(idx_C, idx_B, frame_paths, frame_cache, sim_cache) # Link C-B
+            
+            if i < N - 2: # Link B-D
+                score_after += get_similarity(idx_B, order[i+2], frame_paths, frame_cache, sim_cache)
 
             if score_after > score_before:
                 order[i], order[i+1] = order[i+1], order[i]
                 improved = True
-                # Since the order changed, we must restart the loop in the next iteration
-                break 
+                # A swap was made, so we restart the pass to ensure stability
+                break
         
         if not improved:
+            # If a full pass completes with no swaps, the order is stable
             break
     
     return order

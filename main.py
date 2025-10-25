@@ -157,15 +157,19 @@ def run_pipeline(video_path,
     # ===== STEP 6: Image-based Local Refinement =====
     print(f"[6/7] Local refinement with actual frames...")
     t6 = time.time()
+
+    # Initialize shared caches for image-based refinement
+    frame_cache = {}
+    similarity_cache = {}
     
     print(f"      - Adjacent swap refinement (iter={swap_iter})...")
-    order = ro.adjacent_swap_refinement(order, frame_paths, max_iter=swap_iter)
+    order = ro.adjacent_swap_refinement(order, frame_paths, max_iter=swap_iter, frame_cache=frame_cache, sim_cache=similarity_cache)
     
     print(f"      - Sliding window optimization (window={window_size})...")
     order = ro.sliding_window_refinement(order, frame_paths, window=window_size)
     
     print(f"      - Final swap pass...")
-    order = ro.adjacent_swap_refinement(order, frame_paths, max_iter=1)
+    order = ro.adjacent_swap_refinement(order, frame_paths, max_iter=1, frame_cache=frame_cache, sim_cache=similarity_cache)
     
     print(f"      ✓ Local refinement completed in {time.time()-t6:.2f}s\n")
     
