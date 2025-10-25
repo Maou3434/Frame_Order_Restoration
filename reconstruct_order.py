@@ -5,7 +5,16 @@ import numpy as np
 from pathlib import Path
 from tqdm import tqdm
 from scipy.optimize import linear_sum_assignment
-from numba import jit
+
+import torch
+
+# Global flag for GPU availability
+USE_CUDA = torch.cuda.is_available()
+if USE_CUDA:
+    print("[i] CUDA is available. Using GPU for distance computations.")
+    DEVICE = torch.device("cuda")
+else:
+    print("[i] CUDA not available. Falling back to CPU for distance computations.")
 
 # ---------------------------
 # Utilities
@@ -42,14 +51,9 @@ def load_features(features_file, video_name):
             frame_paths)
 
 # ---------------------------
-# Optimized Distance Matrices
+# Optimized Distance Matrices (with GPU acceleration)
 # ---------------------------
-@jit(nopython=True)
-def hamming_distance_fast(a, b):
-    """Fast hamming distance using XOR"""
-    return np.sum(a != b)
-
-def orb_distance_matrix_optimized(orb_features, ratio_thresh=0.75, top_k=50):
+def orb_distance_matrix_optimized(orb_features, ratio_thresh=0.75, max_descriptors_to_match=500):
     """
     Faster ORB matching with early termination
     """
@@ -61,15 +65,21 @@ def orb_distance_matrix_optimized(orb_features, ratio_thresh=0.75, top_k=50):
     
     for i in range(N):
         des1 = orb_features[i]
-        if des1.shape[0] < 10:  # Skip if too few features
+        if des1.shape[0] < 10:  # Skip if too few features to match meaningfully
             continue
+        
+        # Limit descriptors if specified
+        if des1.shape[0] > max_descriptors_to_match:
+            des1 = des1[:max_descriptors_to_match]
             
         for j in range(i+1, N):
             des2 = orb_features[j]
-            if des2.shape[0] < 10:
+            if des2.shape[0] < 10: # Skip if too few features to match meaningfully
                 continue
             
             try:
+                if des1.shape[0] == 0 or des2.shape[0] == 0: # Ensure descriptors are not empty after slicing
+                    continue
                 matches = bf.knnMatch(des1, des2, k=2)
                 good = [m for m, n in matches if len(matches[0]) > 1 and 
                        m.distance < ratio_thresh * n.distance]
@@ -79,33 +89,57 @@ def orb_distance_matrix_optimized(orb_features, ratio_thresh=0.75, top_k=50):
                 distance = 1.0 - match_score
                 
                 mat[i, j] = mat[j, i] = distance
-            except:
+            except cv2.error: # Catch OpenCV errors, e.g., if descriptors are empty
                 pass
     
     return mat
 
 def hash_distance_matrix(hashes):
-    """Vectorized hamming distance for hash arrays"""
+    """Vectorized hamming distance for hash arrays using PyTorch (with CPU fallback)"""
     N = len(hashes)
-    # Expand dimensions for broadcasting
-    h_i = hashes[:, np.newaxis, :]
-    h_j = hashes[np.newaxis, :, :]
-    # Count differing bits
-    return np.sum(h_i != h_j, axis=2).astype(np.float32)
+    if USE_CUDA:
+        hashes_t = torch.from_numpy(hashes).to(DEVICE)
+        # Expand dimensions for broadcasting
+        h_i = hashes_t.unsqueeze(1)
+        h_j = hashes_t.unsqueeze(0)
+        # Count differing bits
+        dist_matrix = (h_i != h_j).sum(dim=2).float()
+        return dist_matrix.cpu().numpy()
+    else:
+        # Original NumPy implementation
+        h_i = hashes[:, np.newaxis, :]
+        h_j = hashes[np.newaxis, :, :]
+        return np.sum(h_i != h_j, axis=2).astype(np.float32)
 
 def histogram_distance_matrix(hists):
-    """Chi-square distance (vectorized)"""
-    hists_i = hists[:, np.newaxis, :]
-    hists_j = hists[np.newaxis, :, :]
-    diff = (hists_i - hists_j)**2
-    denom = hists_i + hists_j + 1e-10
-    return 0.5 * np.sum(diff / denom, axis=2)
+    """Chi-square distance (vectorized) using PyTorch (with CPU fallback)"""
+    if USE_CUDA:
+        hists_t = torch.from_numpy(hists).to(DEVICE)
+        hists_i = hists_t.unsqueeze(1)
+        hists_j = hists_t.unsqueeze(0)
+        diff = (hists_i - hists_j)**2
+        denom = hists_i + hists_j + 1e-10
+        dist_matrix = 0.5 * torch.sum(diff / denom, dim=2)
+        return dist_matrix.cpu().numpy()
+    else:
+        hists_i = hists[:, np.newaxis, :]
+        hists_j = hists[np.newaxis, :, :]
+        diff = (hists_i - hists_j)**2
+        denom = hists_i + hists_j + 1e-10
+        return 0.5 * np.sum(diff / denom, axis=2)
 
 def euclidean_distance_matrix(features):
-    """Fast Euclidean distance using broadcasting"""
-    f_i = features[:, np.newaxis, :]
-    f_j = features[np.newaxis, :, :]
-    return np.sqrt(np.sum((f_i - f_j)**2, axis=2))
+    """Fast Euclidean distance using broadcasting with PyTorch (with CPU fallback)"""
+    if USE_CUDA:
+        features_t = torch.from_numpy(features).to(DEVICE)
+        f_i = features_t.unsqueeze(1)
+        f_j = features_t.unsqueeze(0)
+        dist_matrix = torch.sqrt(torch.sum((f_i - f_j)**2, dim=2))
+        return dist_matrix.cpu().numpy()
+    else:
+        f_i = features[:, np.newaxis, :]
+        f_j = features[np.newaxis, :, :]
+        return np.sqrt(np.sum((f_i - f_j)**2, axis=2))
 
 def combine_distances(d_orb, d_hist, d_phash, d_dhash, d_edge, d_moment,
                      orb_w=0.35, hist_w=0.15, phash_w=0.15, 
