@@ -16,8 +16,6 @@ def compute_orb_hist_phash(frame):
     kp, des = orb.detectAndCompute(frame, None)
     if des is None:
         des = np.zeros((1, 32), dtype=np.uint8)
-    des_flat = des.flatten()[:1024]  # limit to 1024 elements
-    des_flat = np.pad(des_flat, (0, max(0, 1024 - des_flat.size)), 'constant')
 
     # 2. HSV histogram
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
@@ -27,7 +25,7 @@ def compute_orb_hist_phash(frame):
     # 3. phash
     phash = np.array(imagehash.phash(Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))).hash).astype(np.uint8).flatten()
 
-    return des_flat, hist, phash
+    return des, hist, phash
 
 def process_frame(idx, frame):
     des, hist, phash = compute_orb_hist_phash(frame)
