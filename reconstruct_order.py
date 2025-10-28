@@ -84,9 +84,9 @@ def orb_distance_matrix_optimized(orb_features, ratio_thresh=0.75, max_descripto
                     continue
                 # k=2 for ratio test. Guard against cases with < 2 matches.
                 matches = bf.knnMatch(des1, des2, k=2)
-                # Ensure each match has two neighbors to compare against
-                good = [m for m, n in matches if len(matches) > 0 and len(m) == 2 and
-                       m[0].distance < ratio_thresh * m[1].distance]
+                # Apply ratio test as per Lowe's paper
+                # Filter matches to ensure there are two neighbors, then apply the ratio test.
+                good = [m for m, n in (match for match in matches if len(match) == 2) if m.distance < ratio_thresh * n.distance]
                 
                 # Normalized match score
                 match_score = len(good) / min(len(des1), len(des2))
@@ -440,29 +440,31 @@ def sliding_window_refinement(order, frame_paths, window=5, stride=2, frame_cach
     for start in range(0, N - window, stride):
         end = min(start + window, N)
         segment = order[start:end]
+        if len(segment) <= 1:
+            continue
         
-        # Try all permutations of small segments (only for very small windows)
-        if len(segment) <= 4:
-            from itertools import permutations
-            best_perm = list(segment)
-            best_score = -np.inf
+        # Perform a greedy search within the window to find a better local order
+        # This is much faster than checking all permutations for windows > 4
+        remaining = set(segment)
+        
+        # Find the best starting node within the segment
+        best_start_node = -1
+        min_avg_dist = float('inf')
+        for node in segment:
+            avg_dist = sum(get_similarity(node, other, frame_paths, frame_cache, sim_cache) for other in segment if node != other)
+            if avg_dist < min_avg_dist:
+                min_avg_dist = avg_dist
+                best_start_node = node
 
-            segment_paths = [frame_paths[i] for i in segment]
-            segment_frames = read_gray_cached(segment_paths, frame_cache)
-            
-            for perm in permutations(range(len(segment))):
-                perm_frames = [segment_frames[i] for i in perm]
-                scores = compute_similarity_batch(
-                    perm_frames[:-1], 
-                    perm_frames[1:]
-                )
-                total_score = np.sum(scores)
-                
-                if total_score > best_score:
-                    best_score = total_score
-                    best_perm = [segment[i] for i in perm]
-            
-            order[start:end] = best_perm
+        new_segment = [best_start_node]
+        remaining.remove(best_start_node)
+        while remaining:
+            last = new_segment[-1]
+            next_node = max(remaining, key=lambda node: get_similarity(last, node, frame_paths, frame_cache, sim_cache))
+            new_segment.append(next_node)
+            remaining.remove(next_node)
+        
+        order[start:end] = new_segment
     
     return order
 

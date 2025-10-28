@@ -274,7 +274,7 @@ Examples:
         resize=tuple(args.resize) if args.resize else None,
         num_workers=args.num_workers,
         beam_width=args.beam_width,
-        starts=args.starts, # This argument is not passed to run_pipeline yet.
+        starts=args.starts,
         two_opt_iter=args.two_opt_iter,
         num_clusters=args.num_clusters,
         max_orb_descriptors=args.max_orb_descriptors,
