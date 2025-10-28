@@ -10,13 +10,23 @@ from scipy.optimize import linear_sum_assignment
 
 import torch
 
-# Global flag for GPU availability
-USE_CUDA = torch.cuda.is_available()
-if USE_CUDA:
-    print("[i] CUDA is available. Using GPU for distance computations.")
-    DEVICE = torch.device("cuda")
-else:
-    print("[i] CUDA not available. Falling back to CPU for distance computations.")
+# --- Device Selection for Acceleration ---
+# We prioritize using the integrated GPU via DirectML, falling back to CPU.
+DEVICE = None
+USE_GPU = False
+
+try:
+    import torch_directml
+    if torch_directml.is_available():
+        DEVICE = torch_directml.device()
+        USE_GPU = True
+        print("[i] DirectML device found. Using integrated GPU for acceleration.")
+except (ImportError, RuntimeError, AttributeError):
+    # This block will be hit if torch_directml is not installed or no compatible GPU is found
+    DEVICE = torch.device("cpu")
+    USE_GPU = False
+    print("[!] Warning: DirectML not available or could not be initialized.")
+    print("    ensure you have a compatible Python version (e.g., 3.11) and run: pip install torch-directml")
 
 # ---------------------------
 # Utilities
@@ -101,7 +111,7 @@ def orb_distance_matrix_optimized(orb_features, ratio_thresh=0.75, max_descripto
 def hash_distance_matrix(hashes):
     """Vectorized hamming distance for hash arrays using PyTorch (with CPU fallback)"""
     N = len(hashes)
-    if USE_CUDA:
+    if USE_GPU:
         hashes_t = torch.from_numpy(hashes).to(DEVICE)
         # Expand dimensions for broadcasting
         h_i = hashes_t.unsqueeze(1)
@@ -117,7 +127,7 @@ def hash_distance_matrix(hashes):
 
 def histogram_distance_matrix(hists):
     """Chi-square distance (vectorized) using PyTorch (with CPU fallback)"""
-    if USE_CUDA:
+    if USE_GPU:
         hists_t = torch.from_numpy(hists).to(DEVICE)
         hists_i = hists_t.unsqueeze(1)
         hists_j = hists_t.unsqueeze(0)
@@ -134,7 +144,7 @@ def histogram_distance_matrix(hists):
 
 def euclidean_distance_matrix(features):
     """Fast Euclidean distance using broadcasting with PyTorch (with CPU fallback)"""
-    if USE_CUDA:
+    if USE_GPU:
         features_t = torch.from_numpy(features).to(DEVICE)
         f_i = features_t.unsqueeze(1)
         f_j = features_t.unsqueeze(0)
