@@ -493,35 +493,32 @@ def adjacent_swap_refinement(order, frame_paths, max_iter=5, frame_cache=None, s
             # Original segment: ... A-B-C-D ...
             # Swapped segment:  ... A-C-B-D ...
             # Indices: A=i-1, B=i, C=i+1, D=i+2
+            idx_A = order[i-1] if i > 0 else -1
             idx_B, idx_C = order[i], order[i+1]
+            idx_D = order[i+2] if i < N - 2 else -1
 
             # --- Calculate score before swap ---
-            # We only need to evaluate the links that change: (A,B), (B,C), (C,D)
-            score_before = 0
-            if i > 0: # Link A-B
-                score_before += get_similarity(order[i-1], idx_B, frame_paths, frame_cache, sim_cache)
-            
-            score_before += get_similarity(idx_B, idx_C, frame_paths, frame_cache, sim_cache) # Link B-C
-            
-            if i < N - 2: # Link C-D
-                score_before += get_similarity(idx_C, order[i+2], frame_paths, frame_cache, sim_cache)
+            # We evaluate the total similarity of the local chain.
+            # Original links: (A,B) and (B,C) and (C,D)
+            sim_AB = get_similarity(idx_A, idx_B, frame_paths, frame_cache, sim_cache) if idx_A != -1 else 0
+            sim_BC = get_similarity(idx_B, idx_C, frame_paths, frame_cache, sim_cache)
+            sim_CD = get_similarity(idx_C, idx_D, frame_paths, frame_cache, sim_cache) if idx_D != -1 else 0
+            score_before = sim_AB + sim_BC + sim_CD
 
             # --- Calculate score after swap ---
-            # New links to evaluate: (A,C), (C,B), (B,D)
-            score_after = 0
-            if i > 0: # Link A-C
-                score_after += get_similarity(order[i-1], idx_C, frame_paths, frame_cache, sim_cache)
-            
-            score_after += get_similarity(idx_C, idx_B, frame_paths, frame_cache, sim_cache) # Link C-B
-            
-            if i < N - 2: # Link B-D
-                score_after += get_similarity(idx_B, order[i+2], frame_paths, frame_cache, sim_cache)
+            # New links: (A,C) and (C,B) and (B,D)
+            sim_AC = get_similarity(idx_A, idx_C, frame_paths, frame_cache, sim_cache) if idx_A != -1 else 0
+            sim_CB = get_similarity(idx_C, idx_B, frame_paths, frame_cache, sim_cache) # Same as sim_BC
+            sim_BD = get_similarity(idx_B, idx_D, frame_paths, frame_cache, sim_cache) if idx_D != -1 else 0
+            score_after = sim_AC + sim_CB + sim_BD
 
             if score_after > score_before:
                 order[i], order[i+1] = order[i+1], order[i]
                 improved = True
-                # A swap was made, so we restart the pass to ensure stability
-                break
+                # A swap was made. We could restart the pass, but continuing
+                # is often faster and sufficient, especially if we iterate.
+                # For stability, we'll break and restart the pass.
+                break 
         
         if not improved:
             # If a full pass completes with no swaps, the order is stable

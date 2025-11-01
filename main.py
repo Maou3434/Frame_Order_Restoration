@@ -69,7 +69,8 @@ def run_pipeline(video_path,
                  reverse=False,
                  num_clusters=None,
                  fps=30,
-                 ground_truth_frames=None):
+                 ground_truth_frames=None,
+                 force_original_resolution=False):
     """
     Main pipeline with optimizations
     """
@@ -99,7 +100,11 @@ def run_pipeline(video_path,
     # ===== STEP 2: Feature Extraction =====
     print(f"[2/7] Extracting features (ORB + HSV + hashes + edges + moments)...")
     t2 = time.time()
-    features_file = extract_features(frames_folder, video_name, max_workers=num_workers)
+    features_file = extract_features(
+        frames_folder, video_name, 
+        max_workers=num_workers, 
+        force_original_resolution=force_original_resolution
+    )
     print(f"      ✓ Features extracted in {time.time()-t2:.2f}s\n")
     
     # ===== STEP 3: Load Features & Compute Distances =====
@@ -164,14 +169,14 @@ def run_pipeline(video_path,
     frame_cache = {}
     similarity_cache = {}
     
+    print(f"      - Sliding window optimization (window={window_size})...")
+    order = ro.sliding_window_refinement(order, frame_paths, window=window_size, stride=1, frame_cache=frame_cache, sim_cache=similarity_cache)
+
     print(f"      - Adjacent swap refinement (iter={swap_iter})...")
     order = ro.adjacent_swap_refinement(order, frame_paths, max_iter=swap_iter, frame_cache=frame_cache, sim_cache=similarity_cache)
     
-    print(f"      - Sliding window optimization (window={window_size})...")
-    order = ro.sliding_window_refinement(order, frame_paths, window=window_size, frame_cache=frame_cache, sim_cache=similarity_cache)
-    
-    print(f"      - Final swap pass...")
-    order = ro.adjacent_swap_refinement(order, frame_paths, max_iter=1, frame_cache=frame_cache, sim_cache=similarity_cache)
+    print(f"      - Final sliding window pass (window=3)...")
+    order = ro.sliding_window_refinement(order, frame_paths, window=3, stride=1, frame_cache=frame_cache, sim_cache=similarity_cache)
     
     print(f"      ✓ Local refinement completed in {time.time()-t6:.2f}s\n")
     
@@ -234,6 +239,9 @@ Examples:
                        help="Path to jumbled input video")
     parser.add_argument("--output_root", type=str, default="frames",
                        help="Root folder for extracted frames")
+    parser.add_argument("--force-original-resolution", action="store_true",
+                       help="Disable dynamic downsampling in feature extraction, even if throughput is low.")
+
     parser.add_argument("--every_nth", type=int, default=1,
                        help="Extract every nth frame (default: 1)")
     parser.add_argument("--resize", type=int, nargs=2, metavar=("W", "H"),
@@ -272,6 +280,7 @@ Examples:
         output_root=args.output_root,
         every_nth=args.every_nth,
         resize=tuple(args.resize) if args.resize else None,
+        force_original_resolution=args.force_original_resolution,
         num_workers=args.num_workers,
         beam_width=args.beam_width,
         starts=args.starts,

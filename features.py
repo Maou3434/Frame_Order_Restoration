@@ -84,7 +84,7 @@ def process_frame(args):
     features = compute_features(frame, downsample_factor=downsample_factor)
     return idx, features
 
-def extract_features(frames_folder, video_name, max_workers=None):
+def extract_features(frames_folder, video_name, max_workers=None, force_original_resolution=False):
     """
     Optimized feature extraction with better progress tracking
     """
@@ -112,7 +112,7 @@ def extract_features(frames_folder, video_name, max_workers=None):
         
         # --- Dynamic Resolution Logic ---
         # 1. Decide on downsampling factor based on a small sample's performance
-        if total > 20: # Only run this logic for larger videos
+        if total > 20 and not force_original_resolution: # Only run this logic for larger videos
             initial_batch_size = min(20, total)
             print(f"[i] Processing initial batch of {initial_batch_size} frames to determine optimal resolution...")
             start_batch_time = time.time()
@@ -132,6 +132,8 @@ def extract_features(frames_folder, video_name, max_workers=None):
                 print(f"[!] Throughput is low. Downsampling ALL frames by a factor of {downsample_factor} for speed.")
             else:
                 print("[i] Throughput is good. Processing all frames at original resolution.")
+        elif force_original_resolution:
+            print("[i] Forcing original resolution as requested.")
         
         # 3. Submit all tasks with the chosen downsample factor
         all_args = [(idx, frame_paths[idx], downsample_factor) for idx in range(total)]
