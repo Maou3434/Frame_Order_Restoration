@@ -200,3 +200,88 @@ Output video: output\reconstructed_video.mp4
 
 Summary saved to: output/pipeline_summary.json
 ```
+
+## 4. Code Evolution
+
+```mermaid
+    flowchart TD
+
+        %% Phase Titles (separate, not inside boxes)
+        Initial_Title["**Initial State (cd56317 → 9a658fe)**"]
+        Phase1_Title["**Phase 1: Optimization & Multiprocessing (b11984c → e00d491)**"]
+        Phase2_Title["**Phase 2: Refinement & Stability (5dca9bd → Final)**"]
+
+        %% INITIAL STATE
+        Initial_Title --> Initial_State
+        subgraph Initial_State
+            FE_init["Frame Extraction"]
+            FEx_init["Basic Feature Extraction<br/>pHash / Histogram"]
+            CO_init["Coarse Ordering<br/>Greedy Nearest Neighbor"]
+            LR_init["Local Refinement<br/>Adjacent Swaps"]
+            OUTPUT_init["Output: Video / JSON"]
+
+            FE_init --> FEx_init --> CO_init --> LR_init --> OUTPUT_init
+        end
+
+        %% PHASE 1
+        Phase1_Title --> Phase_1_Optimization
+        subgraph Phase_1_Optimization
+            direction TB
+            FE_opt["Frame Extraction (Optimized)"]
+            FEx_opt["Feature Extraction<br/>Multi-Process, ORB/dHash/Moments/Edges"]
+            DMC_opt["Distance Matrix Calc<br/>GPU / DirectML (PyTorch)"]
+            CO_opt["Coarse Ordering<br/>Beam Search + Multi-Start Greedy"]
+            LR_opt["Local Refinement<br/>2-Opt + Sliding Window + Caching"]
+            OUTPUT_opt["Output"]
+
+            FE_opt -. "Multithreaded Saving" .-> FE_init
+            FEx_opt -. "Worker Processes" .-> FEx_init
+            DMC_opt -. "GPU Acceleration" .-> FEx_opt
+            CO_opt -. "Beam Init" .-> DMC_opt
+            LR_opt -. "Refinement" .-> CO_opt
+            LR_opt --> OUTPUT_opt
+        end
+
+        %% PHASE 2
+        Phase2_Title --> Phase_2_Refinement
+        subgraph Phase_2_Refinement
+            direction TB
+            HS_ref["Ordering via Hierarchical Clustering"]
+            LR_ref["Local Refinement<br/>Segment Reversal Pass"]
+            LR_swap["Lost-Frame Re-insertion<br/>Outlier Reintegration"]
+            OUTPUT_final["Final Output"]
+            FINAL_FINAL["Final Stable Pipeline"]
+
+            HS_ref --> LR_ref --> LR_swap --> OUTPUT_final --> FINAL_FINAL
+        end
+
+        %% Cross-phase transitions
+        FE_init --> FE_opt
+        FEx_init --> FEx_opt
+        CO_init --> CO_opt
+        LR_init --> LR_opt
+        LR_opt --> HS_ref
+
+        %% Styling (unchanged for nodes)
+        style FE_init fill:#f9f,stroke:#333
+        style FEx_init fill:#ccf,stroke:#333
+        style CO_init fill:#afa,stroke:#333
+        style LR_init fill:#ffc,stroke:#333
+        style OUTPUT_init fill:#add8e6,stroke:#333
+
+        style FE_opt fill:#d9f,stroke:#333,stroke-width:2px
+        style FEx_opt fill:#9cf,stroke:#333,stroke-width:2px
+        style CO_opt fill:#6a6,stroke:#333,stroke-width:2px
+        style LR_opt fill:#ff9,stroke:#333,stroke-width:2px
+        style OUTPUT_opt fill:#8cd8e6,stroke:#333,stroke-width:2px
+
+        style HS_ref fill:#ff6666,stroke:#333,stroke-width:3px
+        style LR_ref fill:#ffff66,stroke:#333,stroke-width:3px
+        style LR_swap fill:#ffff33,stroke:#333,stroke-width:3px
+        style FINAL_FINAL fill:#33cc33,stroke:#000,stroke-width:4px
+
+        %% Title styling
+        classDef title fill:none,stroke-width:0,font-size:20px,font-weight:bold;
+        class Initial_Title,Phase1_Title,Phase2_Title title;
+
+```
