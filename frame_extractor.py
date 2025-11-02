@@ -1,6 +1,6 @@
 # frame_extractor.py
 """
-Extracts frames from a given video file and stores them as numbered images
+Extracts frames from a video file and stores them as numbered images
 along with a metadata file describing the extraction details.
 Multithreaded by default for faster processing.
 """
@@ -14,6 +14,19 @@ import multiprocessing
 import time
 
 def save_frame(frame_idx, frame, output_dir, resize, ext):
+    """
+    Saves a single frame to disk.
+
+    Args:
+        frame_idx (int): The index of the frame to be saved.
+        frame (np.ndarray): The frame image data.
+        output_dir (Path): The directory to save the frame in.
+        resize (tuple[int, int] | None): Target (W, H) to resize the frame.
+        ext (str): The file extension to use (e.g., 'png' or 'jpg').
+
+    Returns:
+        int: The index of the saved frame.
+    """
     if resize:
         frame = cv2.resize(frame, resize)
     frame_name = f"frame_{frame_idx:04d}.{ext}"
@@ -22,15 +35,15 @@ def save_frame(frame_idx, frame, output_dir, resize, ext):
 
 def extract_frames(video_path, output_root="frames", every_nth=1, resize=None, lossless=True, num_workers=None):
     """
-    Extract frames from a video using multithreading.
+    Extract frames from a video using a multithreaded approach.
 
     Args:
-        video_path (str): Path to input video.
+        video_path (str): Path to the input video file.
         output_root (str): Root directory where frames will be saved.
-        every_nth (int): Save every nth frame.
-        resize (tuple[int, int] | None): (width, height) to resize frames.
-        lossless (bool): Save frames as PNG if True, else JPEG.
-        num_workers (int | None): Number of threads. Default = min(8, CPU cores)
+        every_nth (int): Interval for frame extraction (e.g., 1 for every frame).
+        resize (tuple[int, int] | None): Optional (width, height) to resize frames.
+        lossless (bool): If True, save frames as PNG; otherwise, save as JPG.
+        num_workers (int | None): Number of threads. Defaults to min(8, CPU cores).
 
     Returns:
         int: Number of frames extracted.

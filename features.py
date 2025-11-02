@@ -7,6 +7,22 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 import time
 
+def _get_orb_nfeatures(laplacian_var):
+    """
+    Determine the number of ORB features to extract based on texture variance.
+
+    Args:
+        laplacian_var (float): The variance of the Laplacian of the grayscale image.
+
+    Returns:
+        int: The number of ORB features to extract.
+    """
+    if laplacian_var < 50:  # Very low texture (e.g., plain sky, smooth wall)
+        return 200
+    if laplacian_var < 500:  # Medium texture
+        return 600
+    return 1000  # High texture (e.g., detailed foliage, complex patterns)
+
 def compute_features(frame, downsample_factor=1.0):
     """
     Enhanced feature extraction with optical flow edges and color moments
@@ -20,15 +36,7 @@ def compute_features(frame, downsample_factor=1.0):
     # Feature sampling: dynamic ORB feature count based on texture variance
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
-    
-    # Heuristic mapping of texture variance to ORB feature count.
-    # These thresholds and counts are tunable for speed vs. accuracy.
-    if laplacian_var < 50: # Very low texture (e.g., plain sky, smooth wall)
-        nfeatures_orb = 200
-    elif laplacian_var < 500: # Medium texture
-        nfeatures_orb = 600
-    else: # High texture (e.g., detailed foliage, complex patterns)
-        nfeatures_orb = 1000
+    nfeatures_orb = _get_orb_nfeatures(laplacian_var)
     
     # 1. ORB descriptors (dynamically sized for better matching)
     orb_dynamic = cv2.ORB_create(nfeatures=nfeatures_orb, scaleFactor=1.2, nlevels=8)
@@ -77,7 +85,7 @@ def compute_features(frame, downsample_factor=1.0):
 
 def process_frame(args):
     """Process single frame (unpacked for better pickling)."""
-    idx, frame_path, downsample_factor = args
+    idx, frame_path, downsample_factor = args  # Unpack arguments
     frame = cv2.imread(frame_path)
     if frame is None:
         raise ValueError(f"Cannot read frame: {frame_path}")
@@ -87,6 +95,20 @@ def process_frame(args):
 def extract_features(frames_folder, video_name, max_workers=None, force_original_resolution=False):
     """
     Optimized feature extraction with better progress tracking
+    and dynamic resolution scaling.
+
+    This function extracts multiple features from each frame in parallel. It can
+    dynamically downsample frames if processing throughput is low to speed up
+    the overall pipeline, unless `force_original_resolution` is set.
+
+    Args:
+        frames_folder (str): Path to the folder containing extracted frames.
+        video_name (str): The name of the video (used for naming the output file).
+        max_workers (int, optional): Number of parallel workers. Defaults to CPU count.
+        force_original_resolution (bool): If True, disables dynamic downsampling.
+
+    Returns:
+        str: The path to the saved .npy file containing the features.
     """
     start_time = time.time()
     frame_files = sorted([

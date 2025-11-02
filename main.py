@@ -19,7 +19,30 @@ from frame_extractor import extract_frames
 from features import extract_features
 import reconstruct_order as ro
 
-def evaluate_order_textual(pred_json_path, ground_truth_frames_folder):
+def _save_pipeline_summary(result, summary_path="output/pipeline_summary.json"):
+    """Saves the pipeline summary to a JSON file."""
+    # Convert numpy types to native python types for JSON serialization
+    serializable_result = {}
+    for k, v in result.items():
+        if isinstance(v, (np.floating, np.integer)):
+            serializable_result[k] = v.item()
+        else:
+            serializable_result[k] = v
+
+    with open(summary_path, "w") as f:
+        json.dump(serializable_result, f, indent=2)
+    print(f"Summary saved to: {summary_path}")
+
+def evaluate_order_textual(pred_json_path, ground_truth_frames_folder): # noqa: E501
+    """
+    (Not Implemented) Evaluate the predicted order against a ground truth.
+
+    Args:
+        pred_json_path (str): Path to the predicted order JSON file.
+        ground_truth_frames_folder (str): Path to the folder with ground truth
+                                          frames, where filenames indicate
+                                          the correct order.
+    """
     pass
 
 def run_pipeline(video_path,
@@ -38,7 +61,29 @@ def run_pipeline(video_path,
                  fps=30,
                  force_original_resolution=False):
     """
-    Main pipeline with optimizations
+    Run the complete frame reordering pipeline.
+
+    This pipeline extracts frames, computes various features, determines an
+    initial order using beam search or hierarchical clustering, refines it
+    with 2-opt and local image-based methods, and finally reconstructs the
+    video.
+
+    Args:
+        video_path (str): Path to the jumbled input video.
+        output_root (str): Root folder for all outputs (frames, features, etc.).
+        every_nth (int): Extract every nth frame from the video.
+        resize (tuple, optional): Target (W, H) to resize frames. Defaults to None.
+        num_workers (int, optional): Number of CPU workers for parallel tasks. Defaults to all cores.
+        beam_width (int): Beam width for beam search ordering.
+        starts (int): Number of random starts for beam search.
+        two_opt_iter (int): Max iterations for 2-opt refinement.
+        max_orb_descriptors (int): Max ORB descriptors to use for matching.
+        window_size (int): Sliding window size for local refinement.
+        swap_iter (int): Iterations for adjacent swap refinement.
+        reverse (bool): Whether to reverse the final video.
+        num_clusters (int, optional): Number of clusters for hierarchical sort. If None, auto-determined.
+        fps (float): FPS for the reconstructed video.
+        force_original_resolution (bool): If True, disables dynamic downsampling in feature extraction.
     """
     video_path = Path(video_path)
     video_name = video_path.stem
@@ -110,7 +155,9 @@ def run_pipeline(video_path,
     # ===== STEP 4: Initial Ordering (Hierarchical or Beam Search) =====
     t4 = time.time()
     # Use hierarchical clustering if specified, or as a heuristic for very long videos
-    use_hierarchical = (num_clusters is not None and num_clusters > 0) or (num_clusters is None and len(frame_paths) > 500)
+    use_hierarchical = (num_clusters is not None and num_clusters > 0) or \
+                       (num_clusters is None and len(frame_paths) > 500)
+
     if use_hierarchical:
         num_clusters = num_clusters or int(len(frame_paths) / 20) # Apply heuristic if not specified
         print(f"[4/7] Initial ordering with hierarchical clustering (clusters={num_clusters})...")
@@ -197,7 +244,7 @@ Examples:
     parser.add_argument("--output_root", type=str, default="frames",
                        help="Root folder for extracted frames")
     parser.add_argument("--force-original-resolution", action="store_true",
-                       help="Disable dynamic downsampling in feature extraction, even if throughput is low.")
+                       help="Disable dynamic downsampling in feature extraction.")
 
     parser.add_argument("--every_nth", type=int, default=1,
                        help="Extract every nth frame (default: 1)")
@@ -249,15 +296,4 @@ Examples:
     )
     
     # Save summary
-    summary_path = "output/pipeline_summary.json"
-    # Convert numpy types to native python types for JSON serialization
-    serializable_result = {}
-    for k, v in result.items():
-        if isinstance(v, (np.floating, np.integer)):
-            serializable_result[k] = v.item()
-        else:
-            serializable_result[k] = v
-
-    with open(summary_path, "w") as f:
-        json.dump(serializable_result, f, indent=2)
-    print(f"Summary saved to: {summary_path}")
+    _save_pipeline_summary(result)

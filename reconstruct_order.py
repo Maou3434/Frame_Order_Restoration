@@ -35,7 +35,17 @@ def safe_mkdir(path):
     Path(path).mkdir(exist_ok=True)
 
 def load_features(features_file, video_name):
-    """Load all feature types"""
+    """
+    Load all feature types from a .npy file.
+
+    Args:
+        features_file (str): Path to the .npy file containing features.
+        video_name (str): The name of the video, used to construct frame paths.
+
+    Returns:
+        tuple: A tuple containing lists of features (orb, hist, phash, etc.)
+               and a list of frame paths.
+    """
     data = np.load(features_file, allow_pickle=True).item()
     orb_list, hist_list, phash_list, dhash_list = [], [], [], []
     edge_list, moment_list = [], []
@@ -67,7 +77,16 @@ def load_features(features_file, video_name):
 # ---------------------------
 def orb_distance_matrix_optimized(orb_features, ratio_thresh=0.75, max_descriptors_to_match=500):
     """
-    Faster ORB matching with early termination
+    Compute a distance matrix based on ORB feature matching.
+
+    Uses BFMatcher with a ratio test to find good matches between ORB descriptors
+    of each pair of frames. The distance is `1 - match_score`.
+
+    Args:
+        orb_features (list): A list of ORB descriptors for each frame.
+        ratio_thresh (float): The ratio for Lowe's ratio test.
+        max_descriptors_to_match (int): Maximum number of descriptors to use for matching,
+                                      for performance.
     """
     N = len(orb_features)
     mat = np.ones((N, N), dtype=np.float32)  # Start with max distance
@@ -109,7 +128,14 @@ def orb_distance_matrix_optimized(orb_features, ratio_thresh=0.75, max_descripto
     return mat
 
 def hash_distance_matrix(hashes):
-    """Vectorized hamming distance for hash arrays using PyTorch (with CPU fallback)"""
+    """
+    Compute a vectorized Hamming distance matrix for hash arrays.
+
+    Uses PyTorch for GPU acceleration if available, otherwise falls back to NumPy.
+
+    Args:
+        hashes (np.ndarray): An array of hash values (N, hash_length).
+    """
     N = len(hashes)
     if USE_GPU:
         hashes_t = torch.from_numpy(hashes).to(DEVICE)
@@ -126,7 +152,14 @@ def hash_distance_matrix(hashes):
         return np.sum(h_i != h_j, axis=2).astype(np.float32)
 
 def histogram_distance_matrix(hists):
-    """Chi-square distance (vectorized) using PyTorch (with CPU fallback)"""
+    """
+    Compute a Chi-square distance matrix for histograms.
+
+    Uses PyTorch for GPU acceleration if available, otherwise falls back to NumPy.
+
+    Args:
+        hists (np.ndarray): An array of histograms (N, num_bins).
+    """
     if USE_GPU:
         hists_t = torch.from_numpy(hists).to(DEVICE)
         hists_i = hists_t.unsqueeze(1)
@@ -143,7 +176,14 @@ def histogram_distance_matrix(hists):
         return 0.5 * np.sum(diff / denom, axis=2)
 
 def euclidean_distance_matrix(features):
-    """Fast Euclidean distance using broadcasting with PyTorch (with CPU fallback)"""
+    """
+    Compute a fast Euclidean distance matrix using broadcasting.
+
+    Uses PyTorch for GPU acceleration if available, otherwise falls back to NumPy.
+
+    Args:
+        features (np.ndarray): An array of feature vectors (N, feature_dim).
+    """
     if USE_GPU:
         features_t = torch.from_numpy(features).to(DEVICE)
         f_i = features_t.unsqueeze(1)
@@ -159,8 +199,19 @@ def combine_distances(d_orb, d_hist, d_phash, d_dhash, d_edge, d_moment,
                      orb_w=0.35, hist_w=0.15, phash_w=0.15, 
                      dhash_w=0.15, edge_w=0.1, moment_w=0.1):
     """
-    Weighted combination with normalization
-    Uses StandardScaler for more robust normalization than simple min-max scaling.
+    Combine multiple distance matrices with weighted averaging and normalization.
+
+    Each matrix is normalized using StandardScaler on its off-diagonal elements
+    to have a mean of 0 and a standard deviation of 1, then shifted to be
+    non-negative. This makes the weights more comparable across different
+    distance metrics.
+
+    Args:
+        d_orb, d_hist, d_phash, d_dhash, d_edge, d_moment (np.ndarray): Distance matrices.
+        orb_w, hist_w, phash_w, dhash_w, edge_w, moment_w (float): Weights for each matrix.
+
+    Returns:
+        np.ndarray: The combined and normalized distance matrix.
     """
     def normalize_matrix(d):
         """Scales a distance matrix using StandardScaler."""
@@ -198,7 +249,15 @@ def combine_distances(d_orb, d_hist, d_phash, d_dhash, d_edge, d_moment,
 # Advanced Ordering Algorithms
 # ---------------------------
 def greedy_nearest_neighbor(dist_matrix, start_idx=0):
-    """Basic greedy nearest neighbor"""
+    """
+    Find an initial order using a basic greedy nearest-neighbor algorithm.
+
+    Starts from `start_idx` and iteratively adds the closest unvisited node.
+
+    Args:
+        dist_matrix (np.ndarray): The distance matrix.
+        start_idx (int): The starting index for the path.
+    """
     N = dist_matrix.shape[0]
     visited = np.zeros(N, dtype=bool)
     order = [start_idx]
@@ -217,7 +276,16 @@ def greedy_nearest_neighbor(dist_matrix, start_idx=0):
 
 def beam_search_order(dist_matrix, beam_width=3, starts=5):
     """
-    Beam search for better ordering
+    Find a good path ordering using beam search.
+
+    This is a heuristic search algorithm that explores the graph by expanding
+    the most promising `beam_width` nodes at each step. It runs the search
+    from multiple starting points to increase the chance of finding a good solution.
+
+    Args:
+        dist_matrix (np.ndarray): The distance matrix.
+        beam_width (int): The number of paths to keep at each step.
+        starts (int): The number of different starting points to try.
     """
     N = dist_matrix.shape[0]
     best_order, best_cost = None, np.inf
@@ -264,6 +332,10 @@ def _solve_cluster_tsp(cluster_dist_matrix):
     """
     row_ind, col_ind = linear_sum_assignment(cluster_dist_matrix)
     
+    if not row_ind.size:
+        # Handle empty case
+        return []
+
     # Create a successor map from the assignment solution
     successors = {r: c for r, c in zip(row_ind, col_ind)}
     
@@ -286,6 +358,13 @@ def hierarchical_cluster_order(dist_matrix, num_clusters):
     2. Sort frames within each cluster.
     3. Sort the clusters themselves.
     4. Chain the results.
+
+    Args:
+        dist_matrix (np.ndarray): The combined distance matrix.
+        num_clusters (int): The number of clusters to create.
+
+    Returns:
+        list: The final ordered list of frame indices.
     """
     N = dist_matrix.shape[0]
 
@@ -341,7 +420,15 @@ def hierarchical_cluster_order(dist_matrix, num_clusters):
 
 def two_opt_refinement(order, dist_matrix, max_iter=100):
     """
-    2-opt local search for TSP-like improvement
+    Refine an existing order using the 2-opt local search algorithm.
+
+    This algorithm iteratively improves a path by reversing segments of the path
+    if doing so reduces the total path length (distance).
+
+    Args:
+        order (list): The initial order of indices.
+        dist_matrix (np.ndarray): The distance matrix.
+        max_iter (int): The maximum number of iterations to perform.
     """
     N = len(order)
     improved = True
@@ -351,21 +438,18 @@ def two_opt_refinement(order, dist_matrix, max_iter=100):
         improved = False
         iteration += 1
         
-        for i in range(1, N - 2):
+        for i in range(1, N - 1):
             for j in range(i + 1, N):
-                if j - i == 1:
-                    continue
-                
                 # Current cost
                 current_cost = (
                     dist_matrix[order[i-1], order[i]] +
-                    dist_matrix[order[j], order[(j+1) % N]]
+                    dist_matrix[order[j-1], order[j]]
                 )
                 
                 # Cost after reversing segment [i:j+1]
                 new_cost = (
-                    dist_matrix[order[i-1], order[j]] +
-                    dist_matrix[order[i], order[(j+1) % N]]
+                    dist_matrix[order[i-1], order[j-1]] +
+                    dist_matrix[order[i], order[j]]
                 )
                 
                 if new_cost < current_cost:
@@ -382,7 +466,16 @@ def two_opt_refinement(order, dist_matrix, max_iter=100):
 # Image-based Local Refinement
 # ---------------------------
 def read_gray_cached(paths, cache={}):
-    """Read grayscale images with caching"""
+    """
+    Read grayscale images with caching to avoid repeated disk I/O.
+
+    Args:
+        paths (list): A list of image paths to read.
+        cache (dict): A dictionary to store cached images.
+
+    Returns:
+        list: A list of loaded grayscale images (as float32 arrays).
+    """
     result = []
     for p in paths:
         if p not in cache:
@@ -393,7 +486,16 @@ def read_gray_cached(paths, cache={}):
     return result
 
 def compute_similarity_batch(frames_a, frames_b):
-    """Batch similarity computation"""
+    """
+    Batch similarity computation using a combination of SSIM and NCC.
+
+    Args:
+        frames_a (list): A list of the first set of frames.
+        frames_b (list): A list of the second set of frames.
+
+    Returns:
+        np.ndarray: An array of similarity scores (higher is better).
+    """
     scores = []
     for a, b in zip(frames_a, frames_b):
         if a is None or b is None:
@@ -441,7 +543,18 @@ def get_similarity(idx1, idx2, frame_paths, frame_cache, sim_cache):
 
 def sliding_window_refinement(order, frame_paths, window=5, stride=2, frame_cache=None, sim_cache=None):
     """
-    Refine using sliding window optimization with shared caches.
+    Refine the order using a sliding window optimization.
+
+    For each window, it performs a local greedy search to find a better ordering
+    for that segment.
+
+    Args:
+        order (list): The current order of frame indices.
+        frame_paths (list): List of paths to the frame images.
+        window (int): The size of the sliding window.
+        stride (int): The step size for the sliding window.
+        frame_cache (dict): Cache for loaded images.
+        sim_cache (dict): Cache for similarity scores.
     """
     if frame_cache is None: frame_cache = {}
     if sim_cache is None: sim_cache = {}
@@ -480,7 +593,17 @@ def sliding_window_refinement(order, frame_paths, window=5, stride=2, frame_cach
 
 def adjacent_swap_refinement(order, frame_paths, max_iter=5, frame_cache=None, sim_cache=None):
     """
-    Fast adjacent swap refinement with incremental updates and caching.
+    Refine the order by iteratively swapping adjacent frames if it improves similarity.
+
+    This is a fast local search that checks if swapping `order[i]` and `order[i+1]`
+    improves the total similarity of the local chain of frames.
+
+    Args:
+        order (list): The current order of frame indices.
+        frame_paths (list): List of paths to the frame images.
+        max_iter (int): The maximum number of passes over the list.
+        frame_cache (dict): Cache for loaded images.
+        sim_cache (dict): Cache for similarity scores.
     """
     if frame_cache is None: frame_cache = {}
     if sim_cache is None: sim_cache = {}
@@ -530,6 +653,18 @@ def adjacent_swap_refinement(order, frame_paths, max_iter=5, frame_cache=None, s
 # Output & Evaluation
 # ---------------------------
 def save_order_json(order, frames, video_name, reverse=False):
+    """
+    Save the final order of frames to a JSON file.
+
+    Args:
+        order (list): The final list of ordered frame indices.
+        frames (list): The list of original frame paths.
+        video_name (str): The name of the video.
+        reverse (bool): Whether to reverse the final order.
+
+    Returns:
+        str: The path to the saved JSON file.
+    """
     safe_mkdir("output")
     if reverse:
         order = order[::-1]
@@ -544,6 +679,19 @@ def save_order_json(order, frames, video_name, reverse=False):
     return out_path
 
 def reconstruct_video(order, frames, fps=30, reverse=False, codec='mp4v'):
+    """
+    Reconstruct the video from the ordered frames.
+
+    Args:
+        order (list): The final list of ordered frame indices.
+        frames (list): The list of original frame paths.
+        fps (float): The desired frames per second for the output video.
+        reverse (bool): Whether to reverse the final order.
+        codec (str): The fourcc codec to use for the video writer.
+
+    Returns:
+        str: The path to the reconstructed video file.
+    """
     safe_mkdir("output")
     if reverse:
         order = order[::-1]
@@ -580,7 +728,16 @@ def reconstruct_video(order, frames, fps=30, reverse=False, codec='mp4v'):
     return out_path
 
 def evaluate_similarity(order, frame_paths):
-    """Evaluate average frame similarity"""
+    """
+    Evaluate the average similarity between adjacent frames in the final order.
+
+    Args:
+        order (list): The final ordered list of frame indices.
+        frame_paths (list): The list of original frame paths.
+
+    Returns:
+        float: The average similarity score as a percentage.
+    """
     cache = {}
     frames = read_gray_cached([frame_paths[i] for i in order], cache)
     
