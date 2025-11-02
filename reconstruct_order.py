@@ -526,6 +526,71 @@ def adjacent_swap_refinement(order, frame_paths, max_iter=5, frame_cache=None, s
     
     return order
 
+def reinsert_misplaced_frames(order, frame_paths, frame_cache, sim_cache, similarity_threshold=0.5, search_step=5):
+    """
+    Finds poorly placed frames and attempts to re-insert them into a better location.
+    This is a "lost and found" pass for frames that local refinements can't fix.
+
+    Args:
+        order (list): The current frame order.
+        frame_paths (list): List of paths to the frames.
+        frame_cache (dict): Cache for loaded grayscale frames.
+        sim_cache (dict): Cache for similarity scores.
+        similarity_threshold (float): A frame is considered "lost" if its similarity to
+                                     both neighbors is below this value.
+        search_step (int): How many positions to skip when searching for a new home.
+                           A higher value is faster but less exhaustive.
+    """
+    print("      - Searching for and re-inserting 'lost' frames...")
+    N = len(order)
+    lost_frames = []
+
+    # 1. Identify "lost" frames based on low similarity to neighbors
+    for i in range(N):
+        prev_idx = order[i-1] if i > 0 else -1
+        curr_idx = order[i]
+        next_idx = order[i+1] if i < N - 1 else -1
+
+        sim_to_prev = get_similarity(prev_idx, curr_idx, frame_paths, frame_cache, sim_cache) if prev_idx != -1 else 1.0
+        sim_to_next = get_similarity(curr_idx, next_idx, frame_paths, frame_cache, sim_cache) if next_idx != -1 else 1.0
+
+        if sim_to_prev < similarity_threshold and sim_to_next < similarity_threshold:
+            lost_frames.append((i, curr_idx))
+
+    if not lost_frames:
+        print("      - No lost frames found. Skipping.")
+        return order
+
+    print(f"      - Found {len(lost_frames)} potential lost frames. Attempting re-insertion.")
+    
+    current_order = list(order)
+    # Process from last to first to not mess up indices of earlier items
+    for (original_pos, frame_to_move) in reversed(lost_frames):
+        # Temporarily remove the frame
+        current_order.pop(original_pos)
+        
+        best_pos = -1
+        best_gain = -np.inf
+
+        # 2. Find the best place to re-insert it
+        # The cost is the similarity gain from inserting frame_to_move between two other frames.
+        for i in range(0, len(current_order) + 1, search_step):
+            prev_frame = current_order[i-1] if i > 0 else -1
+            next_frame = current_order[i] if i < len(current_order) else -1
+
+            sim_before = get_similarity(prev_frame, next_frame, frame_paths, frame_cache, sim_cache) if prev_frame != -1 and next_frame != -1 else 0
+            sim_after = get_similarity(prev_frame, frame_to_move, frame_paths, frame_cache, sim_cache) + \
+                        get_similarity(frame_to_move, next_frame, frame_paths, frame_cache, sim_cache)
+            
+            if sim_after - sim_before > best_gain:
+                best_gain = sim_after - sim_before
+                best_pos = i
+
+        # 3. Insert it into the best found position
+        if best_pos != -1:
+            current_order.insert(best_pos, frame_to_move)
+
+    return current_order
 # ---------------------------
 # Output & Evaluation
 # ---------------------------
