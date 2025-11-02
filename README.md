@@ -6,19 +6,23 @@ This project reconstructs the correct order of frames from a jumbled video.
 
 ### Installation
 
-1.  **Clone the repository:**
+1.  **Set up Python Environment:**
+    This project requires **Python 3.11.9**. It is highly recommended to use this version for optimal compatibility, especially with `torch-directml` for GPU acceleration on Windows. Newer Python versions may not have stable support for `torch-directml`.
+
+2.  **Clone the repository:**
     ```bash
     git clone https://github.com/your-username/frame-restoration.git
     cd frame-restoration
     ```
 
-2.  **Create a virtual environment (recommended):**
+3.  **Create a virtual environment (recommended):**
+    Ensure you are using your Python 3.11.9 interpreter.
     ```bash
     python -m venv .venv
     source .venv/bin/activate  # On Windows, use `.venv\Scripts\activate`
     ```
 
-3.  **Install dependencies:**
+4.  **Install dependencies:**
     ```bash
     pip install opencv-python numpy Pillow imagehash scikit-learn tqdm torch
     ```
