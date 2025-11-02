@@ -170,20 +170,21 @@ def run_pipeline(video_path,
     frame_cache = {}
     similarity_cache = {}
     
+    # First, perform the "Lost and Found" pass to fix grossly misplaced frames.
+    # This brings frames to their correct neighborhood before local smoothing.
+    order = ro.reinsert_misplaced_frames(order, frame_paths, frame_cache=frame_cache, sim_cache=similarity_cache)
+
     print(f"      - Sliding window optimization (window={window_size})...")
     order = ro.sliding_window_refinement(order, frame_paths, window=window_size, stride=1, frame_cache=frame_cache, sim_cache=similarity_cache)
 
     print(f"      - Adjacent swap refinement (iter={swap_iter})...")
     order = ro.adjacent_swap_refinement(order, frame_paths, max_iter=swap_iter, frame_cache=frame_cache, sim_cache=similarity_cache)
     
-    print(f"      - Final sliding window pass (window=3)...")
-    order = ro.sliding_window_refinement(order, frame_paths, window=3, stride=1, frame_cache=frame_cache, sim_cache=similarity_cache)
-    
-    # Add the new segment reversal pass
+    # Add the segment reversal pass to fix short backward sequences.
     order = ro.segment_reversal_refinement(order, frame_paths, frame_cache=frame_cache, sim_cache=similarity_cache)
 
-    # Add the new "Lost and Found" pass here
-    order = ro.reinsert_misplaced_frames(order, frame_paths, frame_cache=frame_cache, sim_cache=similarity_cache)
+    print(f"      - Final sliding window pass (window=3)...")
+    order = ro.sliding_window_refinement(order, frame_paths, window=3, stride=1, frame_cache=frame_cache, sim_cache=similarity_cache)
 
     print(f"      ✓ Local refinement completed in {time.time()-t6:.2f}s\n")
     
