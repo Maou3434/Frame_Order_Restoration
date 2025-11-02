@@ -681,12 +681,15 @@ def reinsert_misplaced_frames(order, frame_paths, frame_cache, sim_cache, max_pa
                 best_pos = i
 
         # 5. Re-insert the frame if it's a better fit and not the same spot
-        if best_pos != -1 and best_pos != original_pos:
+        if best_pos != -1 and best_pos != original_pos and best_gain > 0:
             current_order.insert(best_pos, frame_to_move)
             print(f"      - Pass {pass_num+1}: Moved frame {frame_to_move} from pos {original_pos} to {best_pos} (gain: {best_gain:.3f})")
         else:
+            # Re-insert the frame at its original position if no better move was found.
+            # This prevents the frame from being lost.
+            current_order.insert(original_pos, frame_to_move)
             # No improvement found, stop iterating
-            print(f"      - No beneficial move found for frame {frame_to_move}. Halting.")
+            print(f"      - No beneficial move found for frame {frame_to_move} (best gain: {best_gain:.3f}). Halting.")
             break
 
     return current_order
