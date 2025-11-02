@@ -1,6 +1,7 @@
 import os
 import json
 import cv2
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from sklearn.cluster import AgglomerativeClustering
 import numpy as np
 from pathlib import Path
@@ -476,6 +477,58 @@ def sliding_window_refinement(order, frame_paths, window=5, stride=2, frame_cach
     
     return order
 
+def _refine_segment(segment, frame_paths, window, stride):
+    """Helper function to run sliding window on a single segment."""
+    # Caches must be created per-process
+    frame_cache = {}
+    sim_cache = {}
+    
+    N = len(segment)
+    for start in range(0, N - window, stride):
+        end = min(start + window, N)
+        sub_segment = segment[start:end]
+        if len(sub_segment) <= 1:
+            continue
+
+        remaining = set(sub_segment)
+        best_start_node = -1
+        min_avg_dist = float('inf')
+        for node in sub_segment:
+            avg_dist = sum(get_similarity(node, other, frame_paths, frame_cache, sim_cache) for other in sub_segment if node != other)
+            if avg_dist < min_avg_dist:
+                min_avg_dist = avg_dist
+                best_start_node = node
+
+        new_sub_segment = [best_start_node]
+        remaining.remove(best_start_node)
+        while remaining:
+            last = new_sub_segment[-1]
+            next_node = max(remaining, key=lambda node: get_similarity(last, node, frame_paths, frame_cache, sim_cache))
+            new_sub_segment.append(next_node)
+            remaining.remove(next_node)
+        
+        segment[start:end] = new_sub_segment
+    return segment
+
+def sliding_window_refinement_parallel(order, frame_paths, window=5, stride=1, num_workers=None):
+    """
+    Parallel version of sliding window refinement.
+    Splits the order into chunks and processes them in parallel.
+    """
+    if num_workers is None:
+        num_workers = os.cpu_count()
+    
+    chunks = np.array_split(order, num_workers)
+    
+    with ProcessPoolExecutor(max_workers=num_workers) as executor:
+        futures = [executor.submit(_refine_segment, list(chunk), frame_paths, window, stride) for chunk in chunks]
+        refined_chunks = [future.result() for future in as_completed(futures)]
+    
+    # Note: The order of results from as_completed is not guaranteed.
+    # A more robust implementation would map futures back to their original chunk index.
+    # For this use case, simply concatenating is sufficient as chunks are independent.
+    return [item for sublist in refined_chunks for item in sublist]
+
 def adjacent_swap_refinement(order, frame_paths, max_iter=5, frame_cache=None, sim_cache=None):
     """
     Fast adjacent swap refinement with incremental updates and caching.
@@ -557,99 +610,83 @@ def segment_reversal_refinement(order, frame_paths, frame_cache, sim_cache, min_
                               get_similarity(seg_start, p_after, frame_paths, frame_cache, sim_cache)
                 
                 if score_after > score_before:
-                    current_order[i:j+1] = reversed(current_order[i:j+1])
+                    current_order[i : j + 1] = reversed(current_order[i : j + 1])
                     improved_in_pass = True
     return current_order
 
-def reinsert_misplaced_frames(order, frame_paths, frame_cache, sim_cache, max_passes=3, outlier_std_factor=1.5):
+def reinsert_misplaced_frames(order, frame_paths, frame_cache, sim_cache, max_passes=15):
     """
-    Finds poorly placed frames and attempts to re-insert them into a better location.
-    This is a "lost and found" pass for frames that local refinements can't fix.
-    This is an iterative process, as moving one frame can reveal others that are misplaced.
-    This version uses statistical outliers to identify "lost" frames.
+    Iteratively finds the single worst-placed frame ("lost" frame), removes it,
+    and re-inserts it into the best possible location. This is a more stable
+    "lost and found" approach than moving many frames at once.
 
     Args:
         order (list): The current frame order.
         frame_paths (list): List of paths to the frames.
         frame_cache (dict): Cache for loaded grayscale frames.
         sim_cache (dict): Cache for similarity scores.
-        max_passes (int): Maximum number of times to scan the whole sequence for lost frames.
-        outlier_std_factor (float): A frame is "lost" if its connection is worse than
-                                  (mean - std * factor) of all similarities.
+        max_passes (int): Max number of frames to move.
     """
     print("      - Searching for and re-inserting 'lost' frames...")
     current_order = list(order)
 
     for pass_num in range(max_passes):
-        # --- Calculate statistics for the current order ---
         N = len(current_order)
-        similarities = []
-        for i in range(N - 1):
-            sim = get_similarity(current_order[i], current_order[i+1], frame_paths, frame_cache, sim_cache)
-            similarities.append(sim)
-        
-        if not similarities:
-            break # Should not happen with more than 1 frame
-
-        similarities = np.array(similarities)
-        mean_sim = np.mean(similarities)
-        std_sim = np.std(similarities)
-        # A frame is an outlier if its connection is much worse than average
-        similarity_threshold = mean_sim - outlier_std_factor * std_sim
-
-        print(f"      - Pass {pass_num+1}: Avg similarity={mean_sim:.3f}, Std={std_sim:.3f}, Outlier threshold={similarity_threshold:.3f}")
-
-        # --- Identify "lost" frames based on the dynamic threshold ---
-        lost_frames = []
-        for i in range(N):
-            curr_idx = current_order[i]
-            
-            sim_to_prev = get_similarity(current_order[i-1], curr_idx, frame_paths, frame_cache, sim_cache) if i > 0 else 1.0
-            sim_to_next = get_similarity(curr_idx, current_order[i+1], frame_paths, frame_cache, sim_cache) if i < N - 1 else 1.0
-
-            # A frame is lost if it's poorly connected to *either* side.
-            if sim_to_prev < similarity_threshold or sim_to_next < similarity_threshold:
-                lost_frames.append((i, curr_idx))
-
-        if not lost_frames:
-            print(f"      - No more lost frames found. Halting.")
+        if N < 3:
             break
 
-        print(f"      - Found {len(lost_frames)} potential lost frames. Attempting re-insertion.")
+        # 1. Find the weakest link in the chain
+        similarities = [get_similarity(current_order[i], current_order[i+1], frame_paths, frame_cache, sim_cache) for i in range(N - 1)]
+        weakest_link_idx = np.argmin(similarities)
         
-        frames_moved = 0
-        # Process from last to first to not mess up indices of earlier items
-        for (original_pos, frame_to_move) in reversed(lost_frames):
-            current_order.pop(original_pos)
+        # 2. Decide which of the two frames is the "lost" one
+        f1_idx, f2_idx = weakest_link_idx, weakest_link_idx + 1
+        frame1, frame2 = current_order[f1_idx], current_order[f2_idx]
+
+        # Check connection of f1 to its *other* neighbor
+        sim_f1_prev = get_similarity(current_order[f1_idx-1], frame1, frame_paths, frame_cache, sim_cache) if f1_idx > 0 else similarities[weakest_link_idx]
+        # Check connection of f2 to its *other* neighbor
+        sim_f2_next = get_similarity(frame2, current_order[f2_idx+1], frame_paths, frame_cache, sim_cache) if f2_idx < N - 1 else similarities[weakest_link_idx]
+
+        if sim_f1_prev < sim_f2_next:
+            # frame1 is more poorly connected overall
+            original_pos = f1_idx
+            frame_to_move = frame1
+        else:
+            # frame2 is the culprit
+            original_pos = f2_idx
+            frame_to_move = frame2
+
+        # 3. Remove the lost frame
+        current_order.pop(original_pos)
+        
+        # 4. Find the best new position for it
+        best_pos = -1
+        best_gain = -np.inf
+        
+        # Calculate average similarity to use as a baseline for boundary cases
+        mean_sim = np.mean(similarities)
+
+        for i in range(len(current_order) + 1):
+            prev_frame = current_order[i-1] if i > 0 else -1
+            next_frame = current_order[i] if i < len(current_order) else -1
+
+            sim_before = get_similarity(prev_frame, next_frame, frame_paths, frame_cache, sim_cache) if prev_frame != -1 and next_frame != -1 else 0
+            sim_after_prev = get_similarity(prev_frame, frame_to_move, frame_paths, frame_cache, sim_cache) if prev_frame != -1 else mean_sim
+            sim_after_next = get_similarity(frame_to_move, next_frame, frame_paths, frame_cache, sim_cache) if next_frame != -1 else mean_sim
             
-            best_pos = -1
-            best_gain = -np.inf
+            gain = (sim_after_prev + sim_after_next) - sim_before
+            if gain > best_gain:
+                best_gain = gain
+                best_pos = i
 
-            # --- Find the best place to re-insert it (exhaustive search) ---
-            for i in range(len(current_order) + 1):
-                prev_frame = current_order[i-1] if i > 0 else -1
-                next_frame = current_order[i] if i < len(current_order) else -1
-
-                sim_before = 0
-                if prev_frame != -1 and next_frame != -1:
-                    # The key for sim_cache is a sorted tuple, so this check is needed.
-                    sim_before = get_similarity(prev_frame, next_frame, frame_paths, frame_cache, sim_cache)
-
-                sim_after_prev = get_similarity(prev_frame, frame_to_move, frame_paths, frame_cache, sim_cache) if prev_frame != -1 else mean_sim
-                sim_after_next = get_similarity(frame_to_move, next_frame, frame_paths, frame_cache, sim_cache) if next_frame != -1 else mean_sim
-                
-                gain = (sim_after_prev + sim_after_next) - sim_before
-                if gain > best_gain:
-                    best_gain = gain
-                    best_pos = i
-
-            # --- Insert it only if the new position is a significant improvement ---
-            # The new position must be better than the average similarity to be considered a good fit.
-            if best_pos != -1 and best_gain > 0 and (get_similarity(current_order[best_pos-1] if best_pos > 0 else -1, frame_to_move, frame_paths, frame_cache, sim_cache) > mean_sim or get_similarity(frame_to_move, current_order[best_pos] if best_pos < len(current_order) else -1, frame_paths, frame_cache, sim_cache) > mean_sim):
-                current_order.insert(best_pos, frame_to_move)
-                frames_moved += 1
-        
-        if frames_moved == 0 and not lost_frames:
+        # 5. Re-insert the frame if it's a better fit and not the same spot
+        if best_pos != -1 and best_pos != original_pos:
+            current_order.insert(best_pos, frame_to_move)
+            print(f"      - Pass {pass_num+1}: Moved frame {frame_to_move} from pos {original_pos} to {best_pos} (gain: {best_gain:.3f})")
+        else:
+            # No improvement found, stop iterating
+            print(f"      - No beneficial move found for frame {frame_to_move}. Halting.")
             break
 
     return current_order

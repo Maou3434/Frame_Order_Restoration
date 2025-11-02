@@ -12,6 +12,7 @@ import argparse
 import time
 from pathlib import Path
 import os
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import json
 import numpy as np
 
@@ -175,7 +176,14 @@ def run_pipeline(video_path,
     order = ro.reinsert_misplaced_frames(order, frame_paths, frame_cache=frame_cache, sim_cache=similarity_cache)
 
     print(f"      - Sliding window optimization (window={window_size})...")
-    order = ro.sliding_window_refinement(order, frame_paths, window=window_size, stride=1, frame_cache=frame_cache, sim_cache=similarity_cache)
+    # Use parallel sliding window for a potential speedup on multi-core systems
+    if num_workers is None:
+        num_workers = os.cpu_count()
+    
+    if num_workers > 1 and len(order) > 500: # Only parallelize for larger sequences
+        order = ro.sliding_window_refinement_parallel(order, frame_paths, window=window_size, stride=1, num_workers=num_workers)
+    else: # Run sequentially for smaller jobs or single-core execution
+        order = ro.sliding_window_refinement(order, frame_paths, window=window_size, stride=1, frame_cache=frame_cache, sim_cache=similarity_cache)
 
     print(f"      - Adjacent swap refinement (iter={swap_iter})...")
     order = ro.adjacent_swap_refinement(order, frame_paths, max_iter=swap_iter, frame_cache=frame_cache, sim_cache=similarity_cache)
