@@ -61,6 +61,26 @@ python main.py jumbled_video.mp4 --beam_width 7 --starts 10 --two_opt_iter 100 -
 
 ## 2. Algorithm Explanation
 
+### Pipeline Flowchart
+
+Here is a high-level overview of the frame restoration pipeline:
+
+```mermaid
+flowchart TD
+    A[Input Video] --> B(1. Extract Frames);
+    B -- Frames --> C(2. Extract Features in Parallel<br/>`OpenCV`, `imagehash`, `multiprocessing`);
+    C -- Features .npy --> D(3. Compute Distance Matrix<br/>`PyTorch &#40;DirectML&#41;`, `NumPy`);
+    D -- Distance Matrix --> E(4. Find Initial Order<br/>`Beam Search`, `Hierarchical Clustering`);
+    E -- Initial Order --> F(5. Refine Order<br/>`2-Opt`, `Sliding Window`, `Swaps`);
+    F -- Final Order --> G(6. Reconstruct Video & Save Results<br/>`OpenCV`, `JSON`);
+    
+    subgraph Outputs
+        direction LR
+        G --> H[Reconstructed Video];
+        G --> I[Order JSON];
+    end
+```
+
 ### Approach and Techniques
 
 The frame reordering process is treated as a variation of the Traveling Salesperson Problem (TSP), where each frame is a "city" and the "distance" between them is a measure of their dissimilarity. The goal is to find the shortest path that visits every frame exactly once, which corresponds to the most logical sequence.
