@@ -103,8 +103,8 @@ Example output:
 ============================================================
 PIPELINE COMPLETE
 ============================================================
-Total runtime: 123.45s (2.06 min)
-Average frame similarity: 95.21%
-Output video: output/reconstructed_video.mp4
+Total runtime: 182.63s (3.04 min)
+Average frame similarity: 99.28%
+Output video: output\reconstructed_video.mp4
 ============================================================
 ```
