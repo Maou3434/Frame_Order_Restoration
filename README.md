@@ -99,7 +99,7 @@ The algorithm uses a multi-stage approach to solve this problem:
 *   **Accuracy:** The multi-feature approach and the multi-stage refinement process are designed to maximize the accuracy of the final ordering.
 *   **Time Complexity:** The use of hierarchical clustering and beam search helps to manage the time complexity for large numbers of frames. The refinement steps are local and have a lower time complexity than a global search.
 *   **Parallelism:** The feature extraction and some of the refinement steps are parallelized to take advantage of multi-core processors and speed up the process.
-*   **GPU Acceleration:** The distance matrix calculations are accelerated using a GPU if a compatible one is available (via `torch-directml`).
+*   **GPU Acceleration:** The distance matrix calculations are accelerated using the integrated GPU (iGPU) that comes with most modern CPUs (via `torch-directml`). This provides a significant speed-up on many laptops and desktops without requiring a dedicated graphics card.
 
 ## 3. Execution Time Log
 
