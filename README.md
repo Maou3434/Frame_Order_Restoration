@@ -22,7 +22,7 @@ This project reconstructs the correct order of frames from a jumbled video.
     ```bash
     pip install opencv-python numpy Pillow imagehash scikit-learn tqdm torch
     ```
-    **For integrated GPU acceleration on Windows with AMD/Intel GPUs, install `torch-directml`:**
+    **For integrated GPU acceleration on Windows with AMD/Intel CPUs, install `torch-directml`:**
     ```bash
     pip install torch-directml
     ```
@@ -53,7 +53,18 @@ For better accuracy, you can use the following parameters. These parameters incr
 python main.py jumbled_video.mp4 --beam_width 7 --starts 10 --two_opt_iter 100 --window_size 5 --swap_iter 5 --force-original-resolution
 ```
 
+### How to Test
 
+To evaluate the accuracy of the reconstruction, you can provide a folder with the ground truth (original, correctly ordered) frames.
+
+1.  **Extract the ground truth frames** into a separate directory, for example, `ground_truth_frames/`.
+
+2.  **Run the pipeline with the `--ground_truth_frames` argument:**
+    ```bash
+    python main.py jumbled_video.mp4 --ground_truth_frames ground_truth_frames/
+    ```
+
+    The script will output the exact-position accuracy after the reconstruction is complete.
 
 ## 2. Algorithm Explanation
 
@@ -101,6 +112,7 @@ PIPELINE COMPLETE
 ============================================================
 Total runtime: 123.45s (2.06 min)
 Average frame similarity: 95.21%
+Exact-position accuracy: 98.50%
 Output video: output/reconstructed_video.mp4
 ============================================================
 ```
