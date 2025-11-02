@@ -57,7 +57,6 @@ def extract_frames(video_path, output_root="frames", every_nth=1, resize=None, l
 
     frame_idx = 0
     saved_count = 0
-    tasks = []
 
     with ThreadPoolExecutor(max_workers=num_workers) as executor:
         futures = []

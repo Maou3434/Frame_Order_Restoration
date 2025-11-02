@@ -70,7 +70,8 @@ def run_pipeline(video_path,
                  num_clusters=None,
                  fps=30,
                  ground_truth_frames=None,
-                 force_original_resolution=False):
+                 force_original_resolution=False
+                 ):
     """
     Main pipeline with optimizations
     """
@@ -101,7 +102,7 @@ def run_pipeline(video_path,
     print(f"[2/7] Extracting features (ORB + HSV + hashes + edges + moments)...")
     t2 = time.time()
     features_file = extract_features(
-        frames_folder, video_name, 
+        frames_folder, video_name,
         max_workers=num_workers, 
         force_original_resolution=force_original_resolution
     )
@@ -245,8 +246,6 @@ Examples:
                        help="Path to jumbled input video")
     parser.add_argument("--output_root", type=str, default="frames",
                        help="Root folder for extracted frames")
-    parser.add_argument("--force-original-resolution", action="store_true",
-                       help="Disable dynamic downsampling in feature extraction, even if throughput is low.")
 
     parser.add_argument("--every_nth", type=int, default=1,
                        help="Extract every nth frame (default: 1)")
@@ -278,12 +277,13 @@ Examples:
                        help="Output FPS (default: 30)")
     parser.add_argument("--ground_truth_frames", type=str,
                        help="Path to original frames folder for accuracy evaluation")
+    parser.add_argument("--force-original-resolution", action="store_true",
+                       help="Disable dynamic downsampling in feature extraction, even if throughput is low.")
     
     args = parser.parse_args()
     
     result = run_pipeline(
         args.video_path,
-        output_root=args.output_root,
         every_nth=args.every_nth,
         resize=tuple(args.resize) if args.resize else None,
         force_original_resolution=args.force_original_resolution,
@@ -297,7 +297,8 @@ Examples:
         swap_iter=args.swap_iter,
         reverse=args.reverse,
         fps=args.fps,
-        ground_truth_frames=args.ground_truth_frames
+        ground_truth_frames=args.ground_truth_frames,
+        output_root=args.output_root
     )
     
     # Save summary
