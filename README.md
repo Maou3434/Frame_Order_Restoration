@@ -45,6 +45,14 @@ The main script `main.py` runs the entire pipeline.
     *   Save the reordered frame sequence to `output/jumbled_video_order.json`.
     *   Reconstruct the video and save it as `output/reconstructed_video.mp4`.
 
+### Optimal Parameters
+
+For better accuracy, you can use the following parameters. These parameters increase the search space and iterations, which may result in longer processing time.
+
+```bash
+python main.py jumbled_video.mp4 --beam_width 7 --starts 10 --two_opt_iter 100 --window_size 5 --swap_iter 5 --force-original-resolution
+```
+
 ### How to Test
 
 To evaluate the accuracy of the reconstruction, you can provide a folder with the ground truth (original, correctly ordered) frames.
