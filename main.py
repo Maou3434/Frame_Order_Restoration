@@ -20,40 +20,7 @@ from features import extract_features
 import reconstruct_order as ro
 
 def evaluate_order_textual(pred_json_path, ground_truth_frames_folder):
-    """Compare predicted order vs ground truth"""
-    with open(pred_json_path, "r") as f:
-        data = json.load(f)
-    pred_order = data["order_idx"]
-    
-    gt_files = sorted([
-        p for p in Path(ground_truth_frames_folder).iterdir() 
-        if p.suffix.lower() in (".png", ".jpg", ".jpeg")
-    ])
-    total = len(gt_files)
-    
-    if total != len(pred_order):
-        print(f"[!] Warning: GT={total} frames, Pred={len(pred_order)} frames")
-        total = min(total, len(pred_order))
-    
-    correct = sum(1 for i in range(total) if pred_order[i] == i)
-    misplacements = [(i, pred_order[i]) for i in range(total) if pred_order[i] != i]
-    
-    accuracy = 100.0 * correct / total
-    print(f"\n--- ORDER COMPARISON ---")
-    print(f"Total frames: {total}")
-    print(f"Correct positions: {correct}")
-    print(f"Misplaced: {len(misplacements)}")
-    
-    if misplacements:
-        print("Sample misplacements (pred_pos -> orig_idx):")
-        for i, (p, o) in enumerate(misplacements[:15]):
-            print(f"  {p} -> {o}", end="")
-            if (i + 1) % 5 == 0:
-                print()
-        print()
-    
-    print(f"Exact-position accuracy: {accuracy:.2f}%")
-    return accuracy, misplacements
+    pass
 
 def run_pipeline(video_path,
                  output_root="frames",
@@ -69,7 +36,6 @@ def run_pipeline(video_path,
                  reverse=False,
                  num_clusters=None,
                  fps=30,
-                 ground_truth_frames=None,
                  force_original_resolution=False):
     """
     Main pipeline with optimizations
@@ -194,11 +160,7 @@ def run_pipeline(video_path,
     # ===== Evaluation =====
     print(f"[*] Evaluating results...")
     avg_sim = ro.evaluate_similarity(order, frame_paths)
-    
-    acc, misplacements = None, None
-    if ground_truth_frames:
-        acc, misplacements = evaluate_order_textual(out_json, ground_truth_frames)
-    
+
     total_time = time.time() - t0
     
     # ===== Summary =====
@@ -207,8 +169,6 @@ def run_pipeline(video_path,
     print(f"{'='*60}")
     print(f"Total runtime: {total_time:.2f}s ({total_time/60:.2f} min)")
     print(f"Average frame similarity: {avg_sim:.2f}%")
-    if acc is not None:
-        print(f"Exact-position accuracy: {acc:.2f}%")
     print(f"Output video: {out_vid}")
     print(f"{'='*60}\n")
     
@@ -216,8 +176,6 @@ def run_pipeline(video_path,
         "pred_json": out_json,
         "reconstructed_video": out_vid,
         "avg_frame_similarity_pct": avg_sim,
-        "exact_position_accuracy_pct": acc,
-        "misplacements_sample": misplacements[:20] if misplacements else None,
         "runtime_sec": total_time,
         "frames_per_sec": extracted / total_time
     }
@@ -228,7 +186,6 @@ if __name__ == "__main__":
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python main.py video.mp4
   python main.py video.mp4 --beam_width 7 --starts 10
   python main.py video.mp4 --ground_truth_frames original_frames/
   python main.py video.mp4 --resize 960 540  # Faster processing
@@ -270,8 +227,6 @@ Examples:
                        help="Reverse the final video")
     parser.add_argument("--fps", type=float, default=30.0,
                        help="Output FPS (default: 30)")
-    parser.add_argument("--ground_truth_frames", type=str,
-                       help="Path to original frames folder for accuracy evaluation")
     
     args = parser.parse_args()
     
@@ -291,7 +246,6 @@ Examples:
         swap_iter=args.swap_iter,
         reverse=args.reverse,
         fps=args.fps,
-        ground_truth_frames=args.ground_truth_frames
     )
     
     # Save summary
@@ -305,5 +259,5 @@ Examples:
             serializable_result[k] = v
 
     with open(summary_path, "w") as f:
-        json.dump({k: v for k, v in serializable_result.items() if k != "misplacements_sample"}, f, indent=2)
+        json.dump(serializable_result, f, indent=2)
     print(f"Summary saved to: {summary_path}")
