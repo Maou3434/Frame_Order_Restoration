@@ -178,6 +178,9 @@ def run_pipeline(video_path,
     print(f"      - Final sliding window pass (window=3)...")
     order = ro.sliding_window_refinement(order, frame_paths, window=3, stride=1, frame_cache=frame_cache, sim_cache=similarity_cache)
     
+    # Add the new segment reversal pass
+    order = ro.segment_reversal_refinement(order, frame_paths, frame_cache=frame_cache, sim_cache=similarity_cache)
+
     # Add the new "Lost and Found" pass here
     order = ro.reinsert_misplaced_frames(order, frame_paths, frame_cache=frame_cache, sim_cache=similarity_cache)
 

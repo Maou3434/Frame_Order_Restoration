@@ -591,6 +591,43 @@ def reinsert_misplaced_frames(order, frame_paths, frame_cache, sim_cache, simila
             current_order.insert(best_pos, frame_to_move)
 
     return current_order
+
+def segment_reversal_refinement(order, frame_paths, frame_cache, sim_cache, min_len=4, max_len=15):
+    """
+    Checks for and reverses small segments if doing so improves boundary connections.
+    This is good at fixing short sequences that are entirely backward.
+    e.g., ...A-B-C-D-E... -> ...A-D-C-B-E...
+    """
+    print("      - Checking for reversible segments...")
+    N = len(order)
+    current_order = list(order)
+    
+    for length in range(min_len, max_len + 1):
+        improved_in_pass = True
+        while improved_in_pass:
+            improved_in_pass = False
+            for i in range(N - length + 1):
+                j = i + length - 1
+                
+                # Boundary points
+                p_before = current_order[i-1] if i > 0 else -1
+                p_after = current_order[j+1] if j < N - 1 else -1
+                
+                # Segment endpoints
+                seg_start, seg_end = current_order[i], current_order[j]
+
+                # Score before reversal: sim(p_before, seg_start) + sim(seg_end, p_after)
+                score_before = get_similarity(p_before, seg_start, frame_paths, frame_cache, sim_cache) + \
+                               get_similarity(seg_end, p_after, frame_paths, frame_cache, sim_cache)
+
+                # Score after reversal: sim(p_before, seg_end) + sim(seg_start, p_after)
+                score_after = get_similarity(p_before, seg_end, frame_paths, frame_cache, sim_cache) + \
+                              get_similarity(seg_start, p_after, frame_paths, frame_cache, sim_cache)
+                
+                if score_after > score_before:
+                    current_order[i:j+1] = reversed(current_order[i:j+1])
+                    improved_in_pass = True
+    return current_order
 # ---------------------------
 # Output & Evaluation
 # ---------------------------
