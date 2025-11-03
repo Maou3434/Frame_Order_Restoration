@@ -57,8 +57,6 @@ For better accuracy, you can use the following parameters. These parameters incr
 python main.py jumbled_video.mp4 --beam_width 7 --starts 10 --two_opt_iter 100 --window_size 5 --swap_iter 5 --force-original-resolution
 ```
 
-### How to Test
-
 ## 2. Algorithm Explanation
 
 ### Pipeline Flowchart
